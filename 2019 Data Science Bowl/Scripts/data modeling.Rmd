@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(here)
+library(tidymodels)
 
 set.seed(0408)
 
@@ -24,7 +25,7 @@ last_test_assessment <- test %>%
   filter(type == "Assessment") %>%
   arrange(desc(timestamp)) %>%
   distinct(installation_id, .keep_all = TRUE) %>%
-  select(installation_id, title)
+  select(installation_id, game_session, title)
 
 #creating a function to score events
 score_events <- function(df){
@@ -80,15 +81,68 @@ all_df_game_hist <- all_df %>%
 Joining performance history with training label data
 ```{r join game hist}
 trn_hist <- trn_lbls %>%
-  left_join(., all_df_game_hist, by = "installation_id") %>%
-  distinct(installation_id, title, game_title, .keep_all = TRUE) %>%
+  left_join(all_df_game_hist, by = "installation_id") %>%
+  distinct(installation_id, game_session, game_title, .keep_all = TRUE) %>%
   pivot_wider(names_from = game_title,
               values_from = c(sum_correct, sum_incorrect, mean_accuracy, med_accuracy, sd_accuracy, n_games,
-                              n_distinct_games, med_mean_diff_acc))
-#RESUME HERE -- RECONSIDER IF THIS IS THE RIGHT APPROACH? WILL THIS GIVE ME THE RIGHT STRUCTURE?
+                              n_distinct_games, med_mean_diff_acc)) %>%
+  select(-matches("_NA$")) #somehow had some NA columns induced -- dropping these
 
-trn_hist %>%
-  count(installation_id, sort = TRUE) #ok, so there are a bunch of repeated installation ids here
+#replacing accuracy missing values with the median; replace sum and number missing values with 0
+trn_hist_impute <- trn_hist %>%
+  mutate_at(vars(matches("acc")),
+            ~replace_na(., median(., na.rm = TRUE))) %>%
+  mutate_at(vars(matches("games|sum")),
+            ~replace_na(., 0)) %>%
+  janitor::clean_names() %>%
+  select(-c("game_session", "installation_id", "num_correct", "num_incorrect", "accuracy")) %>%
+  mutate(accuracy_group = as.factor(accuracy_group))
+#no missing data now -- can start to model
 ```
 
+Training a random forest model on the train data
+```{r rf train}
+#setting my preprocessing
+pre_recipe <- trn_hist_impute %>%
+  recipe(accuracy_group ~ .) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  prep()
+
+#getting the dataframe to work with
+trn <- juice(pre_recipe)
+
+#training a random forest model
+rf_trn <- rand_forest(trees = 500, mode = "classification") %>%
+  set_engine("ranger") %>%
+  fit(accuracy_group ~ ., data = trn)
+```
+
+Setting up test data to get predictions
+```{r test clean and pred}
+test_hist <- last_test_assessment %>%
+  left_join(all_df_game_hist, by = "installation_id") %>%
+  distinct(installation_id, game_session, game_title, .keep_all = TRUE) %>%
+  pivot_wider(names_from = game_title,
+              values_from = c(sum_correct, sum_incorrect, mean_accuracy, med_accuracy, sd_accuracy, n_games,
+                              n_distinct_games, med_mean_diff_acc)) %>%
+  select(-matches("_NA$")) %>%
+  mutate_at(vars(matches("acc")),
+            ~replace_na(., median(., na.rm = TRUE))) %>%
+  mutate_at(vars(matches("games|sum")),
+            ~replace_na(., 0)) %>%
+  janitor::clean_names() %>%
+  select(-c("game_session", "installation_id"))
+
+test <- pre_recipe %>%
+  bake(test_hist)
+
+mod_preds <- predict(rf_trn, test) %>%
+  bind_cols(last_test_assessment) %>%
+  select(installation_id, .pred_class) %>%
+  rename(accuracy_group = .pred_class)
+
+write.csv(mod_preds, "submission.csv", row.names = F)
+```
 
