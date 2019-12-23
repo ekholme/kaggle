@@ -5,6 +5,12 @@ date: "12/19/2019"
 output: html_document
 ---
 
+# Note to self -- if this doesn't work, try to read in the files without the event_data column to see if that helps
+
+Ok, so this model is actually worse than the median only model :)
+
+Something to learn from moving forward
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -44,23 +50,11 @@ score_events <- function(df){
     left_join(., install_ids, by = c('game_session'))
 }
 
-#adding data_id to dfs and then rowbinding to do all feature engingeering together
-train <- train %>%
-  mutate(data_id = "tr")
-
-test <- test %>%
-  mutate(data_id = "te")
-
-all_df <- bind_rows(train, test) %>%
-  select(data_id, everything())
-
-rm(train, test)
 ```
 
-## Getting some performance history for players
-Note that this only looks at games and mostly accuracy/games played for now -- does not take other features into account yet.
-```{r perf history}
-all_df_game_hist <- all_df %>%
+## Getting performance history for training and merging with data
+```{r}
+train <- train %>%
   filter(type == "Game") %>%
   score_events() %>%
   mutate(game_title = title) %>%
@@ -76,20 +70,14 @@ all_df_game_hist <- all_df %>%
     med_mean_diff_acc = med_accuracy - mean_accuracy
   ) %>%
   ungroup()
-```
 
-Joining performance history with training label data
-```{r join game hist}
-trn_hist <- trn_lbls %>%
-  left_join(all_df_game_hist, by = "installation_id") %>%
+train<- trn_lbls %>%
+  left_join(train, by = "installation_id") %>%
   distinct(installation_id, game_session, game_title, .keep_all = TRUE) %>%
   pivot_wider(names_from = game_title,
               values_from = c(sum_correct, sum_incorrect, mean_accuracy, med_accuracy, sd_accuracy, n_games,
                               n_distinct_games, med_mean_diff_acc)) %>%
-  select(-matches("_NA$")) #somehow had some NA columns induced -- dropping these
-
-#replacing accuracy missing values with the median; replace sum and number missing values with 0
-trn_hist_impute <- trn_hist %>%
+  select(-matches("_NA$")) %>%
   mutate_at(vars(matches("acc")),
             ~replace_na(., median(., na.rm = TRUE))) %>%
   mutate_at(vars(matches("games|sum")),
@@ -97,13 +85,12 @@ trn_hist_impute <- trn_hist %>%
   janitor::clean_names() %>%
   select(-c("game_session", "installation_id", "num_correct", "num_incorrect", "accuracy")) %>%
   mutate(accuracy_group = as.factor(accuracy_group))
-#no missing data now -- can start to model
 ```
 
 Training a random forest model on the train data
 ```{r rf train}
 #setting my preprocessing
-pre_recipe <- trn_hist_impute %>%
+pre_recipe <- train %>%
   recipe(accuracy_group ~ .) %>%
   step_center(all_numeric(), -all_outcomes()) %>%
   step_scale(all_numeric(), -all_outcomes()) %>%
@@ -111,18 +98,37 @@ pre_recipe <- trn_hist_impute %>%
   prep()
 
 #getting the dataframe to work with
-trn <- juice(pre_recipe)
+train <- juice(pre_recipe)
 
 #training a random forest model
 rf_trn <- rand_forest(trees = 500, mode = "classification") %>%
   set_engine("ranger") %>%
-  fit(accuracy_group ~ ., data = trn)
+  fit(accuracy_group ~ ., data = train)
+
+rm(train)
 ```
 
-Setting up test data to get predictions
-```{r test clean and pred}
-test_hist <- last_test_assessment %>%
-  left_join(all_df_game_hist, by = "installation_id") %>%
+## Getting performance history on test set
+```{r test hist}
+test <- test %>%
+  filter(type == "Game") %>%
+  score_events() %>%
+  mutate(game_title = title) %>%
+  group_by(installation_id, game_title) %>%
+  summarize(
+    sum_correct = sum(num_correct),
+    sum_incorrect = sum(num_incorrect),
+    mean_accuracy = mean(accuracy, na.rm = TRUE),
+    med_accuracy = median(accuracy, na.rm = TRUE),
+    sd_accuracy = sd(accuracy, na.rm = TRUE),
+    n_games = n(),
+    n_distinct_games = n_distinct(game_title),
+    med_mean_diff_acc = med_accuracy - mean_accuracy
+  ) %>%
+  ungroup()
+
+test <- last_test_assessment %>%
+  left_join(test, by = "installation_id") %>%
   distinct(installation_id, game_session, game_title, .keep_all = TRUE) %>%
   pivot_wider(names_from = game_title,
               values_from = c(sum_correct, sum_incorrect, mean_accuracy, med_accuracy, sd_accuracy, n_games,
@@ -134,15 +140,17 @@ test_hist <- last_test_assessment %>%
             ~replace_na(., 0)) %>%
   janitor::clean_names() %>%
   select(-c("game_session", "installation_id"))
+```
 
+## Predicting values for test set
+```{r test preds}
 test <- pre_recipe %>%
-  bake(test_hist)
+  bake(test)
 
 mod_preds <- predict(rf_trn, test) %>%
   bind_cols(last_test_assessment) %>%
   select(installation_id, .pred_class) %>%
   rename(accuracy_group = .pred_class)
 
-write.csv(mod_preds, "submission.csv", row.names = F)
+#write.csv(mod_preds, "submission.csv", row.names = F)
 ```
-
