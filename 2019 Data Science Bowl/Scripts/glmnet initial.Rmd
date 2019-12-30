@@ -1,0 +1,81 @@
+---
+title: "glmnet initial"
+author: "EE"
+date: "12/29/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(recipes)
+library(parsnip)
+library(yardstick)
+library(glmnet)
+
+#setting a function to score events that can be scored, e.g. games
+score_events <- function(df){
+    install_ids <- df %>% 
+        distinct(game_session, installation_id, assess_num, .keep_all = T) %>%
+        select(game_session, installation_id, timestamp, title, assess_num) 
+    
+    df %>% 
+        filter(str_detect(event_data, '""correct""')) %>%
+        mutate(correct = as.numeric(str_detect(event_data, '""correct"":true'))) %>%
+        group_by(game_session, assess_num) %>%
+        summarize(num_correct = sum(correct),
+                  num_incorrect = n() - sum(correct),
+                  accuracy = sum(correct) / n()) %>%
+        select(game_session, assess_num, num_correct, num_incorrect, accuracy) %>%
+        left_join(., install_ids, by = c("game_session", "assess_num"))
+}
+#this will work with the assess_num coding added later
+```
+
+Reading in data
+```{r read in data}
+train <- data.table::fread(here("2019 Data Science Bowl/Data/train.csv"))
+test <- data.table::fread(here("2019 Data Science Bowl/Data/test.csv"))
+trn_lbls <- data.table::fread(here("2019 Data Science Bowl/Data/train_labels.csv"))
+
+#getting out last test assessment
+last_test_assessment <- test %>%
+  filter(type == "Assessment") %>%
+  arrange(desc(timestamp)) %>%
+  distinct(installation_id, .keep_all = TRUE) %>%
+  select(installation_id, game_session, title)
+
+#only getting training data that we have assessments for
+train <- train %>%
+  filter(is.element(installation_id, trn_lbls$installation_id))
+```
+
+Ok, so I want to calculate events since the last assessment.
+```{r}
+train <- train %>%
+  group_by(installation_id, game_session) %>%
+  mutate(assess_num = cumsum(str_detect(type, "Assessment"))) %>%
+  ungroup() 
+
+train %>%
+  filter(type == "Game") %>%
+  score_events() %>%
+  count(installation_id, game_session, sort = TRUE) 
+  
+  group_by(installation_id, game_session) %>%
+  arrange(assess_num) %>%
+  mutate_at(vars(matches("num_correct|num_incorrect|accuracy")),
+            list(lag_1 = ~lag(., n = 1L), lag_2 = ~lag(., n = 2L))) %>%
+  ungroup() %>%
+  distinct(num_correct_lag_1)
+  
+  group_by(installation_id, game_session, assess_num) %>%
+  filter(str_detect(event_data, '""correct""')) %>%
+  mutate(correct = as.numeric(str_detect(event_data, '""correct"":true'))) %>%
+
+train %>%
+  group_by(installation_id)
+```
+

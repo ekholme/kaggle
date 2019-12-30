@@ -1,0 +1,133 @@
+---
+title: "PBS Data Science EDA"
+author: "EE"
+date: "12/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+
+#setting a function to score events that can be scored, e.g. games
+score_events <- function(df){
+    install_ids <- df %>% 
+        distinct(game_session, installation_id, .keep_all = T) %>%
+        select(game_session, installation_id, timestamp, title)
+    
+    df %>% 
+        filter(str_detect(event_data, '""correct""')) %>%
+        mutate(correct = as.numeric(str_detect(event_data, '""correct"":true'))) %>%
+        select(game_session, title, event_id, event_code, correct) %>%
+        group_by(game_session) %>%
+        summarize(num_correct = sum(correct),
+                  num_incorrect = n() - sum(correct),
+                  accuracy = sum(correct) / n()) %>%
+        select(game_session, num_correct, num_incorrect, accuracy) %>%
+        left_join(., install_ids, by = c('game_session'))
+}
+```
+
+Reading in data and cleaning
+```{r data read}
+train <- data.table::fread(here("2019 Data Science Bowl/Data/train.csv"))
+test <- data.table::fread(here("2019 Data Science Bowl/Data/test.csv"))
+trn_lbls <- data.table::fread(here("2019 Data Science Bowl/Data/train_labels.csv"))
+specs <- data.table::fread(here("2019 Data Science Bowl/Data/specs.csv"))
+
+#getting the last assessment in the test set
+last_test_assessment <- test %>%
+  filter(type == "Assessment") %>%
+  arrange(desc(timestamp)) %>%
+  distinct(installation_id, .keep_all = TRUE) %>%
+  select(installation_id, title)
+
+#filtering out the train data to only ids in the trn_lbls set
+train <- train %>%
+  filter(is.element(installation_id, trn_lbls$installation_id))
+
+glimpse(train)
+```
+
+Let's see how many unique event codes there are
+```{r event code explore}
+train %>%
+  count(event_code) %>%
+  ggplot() +
+  geom_col(aes(x = as.factor(event_code), y = n))
+#ok, so there are some even codes that are we more frequent than others 
+#I'm still not sure what event codes mean, though?
+```
+
+Let's look at different types of activities & the number of entries
+```{r activity types}
+train %>%
+  count(type, sort = TRUE) %>%
+  ggplot() +
+  geom_col(aes(x = type, y = n, fill = type))
+#most media types are games, followed by activities. Relatively few assessments and clips
+```
+
+But let's also see the total time spent on different activities
+```{r time by activity}
+train %>%
+  group_by(game_session) %>%
+  mutate(time_diff = game_time - lag(game_time) %>%
+           replace_na(0)) %>%
+  ungroup() %>%
+  group_by(type) %>%
+  summarize(time = sum(time_diff, na.rm = TRUE)) %>%
+  ggplot() +
+  geom_col(aes(x = type, y = time, fill = type))
+#looks pretty similar to the above, except we see very little time spent on clips -- maybe people skip these?
+```
+
+And let's see the number of activities/types by world
+--note that titles are unique. Media titles will differ by world.
+```{r types by world}
+train %>%
+  count(world, type, sort = TRUE) %>%
+  ggplot(aes(x = type, y = n, fill = type)) +
+  geom_col() +
+  facet_wrap(~ world)
+
+```
+
+
+
+Now let's look at the number of game sessions per installation id to see how often kiddos are playing
+```{r game sessions by installation id}
+train %>%
+  distinct(installation_id, game_session) %>%
+  count(installation_id, sort = TRUE) %>%
+  ggplot() +
+  geom_histogram(aes(n))
+#big skew in the number of game sessions by installation id -- maybe we want to get rid of some of these?
+
+#let's check out the median
+train %>%
+  distinct(installation_id, game_session) %>%
+  count(installation_id, sort = TRUE) %>%
+  summarize(median = median(n, na.rm = TRUE)) #so, the median is only 30
+
+#let's look at what log scaling the number of game sessions does
+train %>%
+  distinct(installation_id, game_session) %>%
+  count(installation_id, sort = TRUE) %>%
+  ggplot() +
+  geom_histogram(aes(log(n))) #log scaling is way better -- will want to use this
+```
+
+# Resume here
+
+Features we can get:
+-accumulated accuracy
+-time spent on different types of activities
+  -note that we can get the time per game session by using max(game_time) for each game_session
+-accumulated number incorrect
+-accumulated number correct
+-(inverse) standard deviation of accuracy (?)
+-log scale number of total sessions
+-performance since their last assessment
