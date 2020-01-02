@@ -1,0 +1,106 @@
+The goal for this analysis is to just use the text data and glmnet to predict the outcome
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(0408)
+
+library(tidyverse)
+library(tidytext)
+library(glmnet)
+
+train <- read_csv(here::here("Disaster Tweets/Data/train.csv"))
+test <- read_csv(here::here("Disaster Tweets/Data/test.csv"))
+
+```
+
+First, let's take our train and test data and find common words.
+```{r train clean}
+get_words <- function(df) {
+  df %>%
+    mutate(text = str_replace_all(text, "http[^[:space:]]*|@[^[:space:]]*", "")) %>% #removing links and usernames
+    unnest_tokens(word, text) %>%
+    anti_join(stop_words)
+}
+
+test_ids <- test$id
+
+train <- train %>%
+  select(id, target, text) %>%
+  get_words()
+
+test <- test %>%
+  select(id, text) %>%
+  get_words()
+
+#finding common words in both
+common_words <- intersect(train$word, test$word)
+
+trn_small <- train %>%
+  filter(is.element(word, common_words))
+
+test_small <- test %>%
+  filter(is.element(word, common_words))
+
+trn_target <- trn_small %>%
+  distinct(id, target) %>%
+  select(target) %>%
+  as_vector()
+
+trn_small <- trn_small %>%
+  select(-target)
+```
+
+Next, let's cast our text data as a sparse matrix
+```{r sparse train}
+train_sparse <- trn_small %>%
+  cast_sparse(id, word)
+
+dim(train_sparse)
+```
+
+Running a glmnet model
+```{r glmnet train}
+trn_mod <- cv.glmnet(x = train_sparse, 
+                     y = trn_target,
+                     family = "binomial",
+                     nfolds = 50,
+                     alpha = 1)
+
+trn_mod
+```
+
+Getting a sparse matrix of test data
+```{r test sparse}
+test_sparse <- test_small %>%
+  cast_sparse(id, word)
+
+dim(test_sparse)
+```
+
+Predicting test values with our model
+```{r test pred}
+test_preds <- predict(trn_mod, test_sparse, type = "class")
+```
+
+Binding into a csv and submitting
+```{r submission}
+submission <- tibble(
+  id = rownames(test_preds),
+  target = test_preds
+) %>%
+  mutate_all(as.numeric)
+
+impute_data <- tibble(
+  id = setdiff(test_ids, submission$id),
+  target = 0
+  )
+
+submission <- submission %>%
+  bind_rows(impute_data) %>%
+  arrange(id)
+
+write_csv(submission, here::here("Disaster Tweets/Submissions/glmnet_initial.csv"))
+```
+
+Note that this actually doesn't end up being a very good model :)
