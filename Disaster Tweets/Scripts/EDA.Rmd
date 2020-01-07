@@ -1,0 +1,135 @@
+---
+title: "Disaster Tweets EDA"
+author: "EE"
+date: "1/6/2020"
+output: html_document
+---
+
+This notebook presents an exploratory analysis of the data for the "Real or Not?" Disaster Tweets challenge
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(0408)
+
+library(tidyverse)
+library(tidytext)
+
+train <- read_csv(here::here("Disaster Tweets/Data/train.csv"))
+test <- read_csv(here::here("Disaster Tweets/Data/test.csv"))
+
+theme_set(theme_minimal())
+```
+
+First, let's glimpse each of the datasets.
+```{r trn glimpse}
+glimpse(train)
+```
+
+```{r test glimpse}
+glimpse(test)
+```
+
+Next, let's combine our datasets so we can explore both together
+```{r}
+all_df <- bind_rows(train, test) %>%
+  mutate(set = if_else(!is.na(target), "tr", "te")) #the 'set' variable gives us a way to distinguish between these in our plots
+```
+
+## Missingness
+
+Let's take a look at missingness in variables across our data
+```{r missingness}
+all_df %>%
+  group_by(set) %>%
+  summarize_all(function(x) {sum(is.na(x))/length(x)})
+```
+This tells us the % of missing values for each variable in each of the sets. `keyword` has a small amount of missingness in each. `location` has about 1/3rd of observations with missing values in each.
+
+```{r missingness viz}
+all_df %>%
+  group_by(set) %>%
+  summarize_all(function(x) {sum(is.na(x))/length(x)}) %>%
+  ungroup() %>%
+  pivot_longer(cols = -set) %>%
+  ggplot(aes(x = name, y = value, fill = set)) +
+  geom_col(position = "dodge") +
+  labs(title = "% Missing by Variable")
+```
+
+## Target Frequency
+
+Just in the train data, let's take a look at how often these tweets actually were about disasters
+```{r target summary}
+all_df %>%
+  filter(set == "tr") %>%
+  summarize(trg = mean(target))
+```
+About 43% of the responses are actually about disasters.
+
+Let's also see if target values change at all with `keyword` or `location`
+```{r keyword targ}
+scatter_func <- function(df, group_var, n) {
+  group_var <- enquo(group_var)
+  
+  df %>%
+  filter(set == "tr") %>%
+  group_by(!!group_var) %>%
+  summarize(targ_freq = mean(target),
+            count = n()) %>%
+  arrange(desc(count)) %>%
+  ungroup() %>%
+  ggplot(aes(x = count, y = targ_freq)) +
+  geom_point() +
+  geom_text(data = . %>%
+              slice(1:n),
+            aes(label = !!group_var), hjust = 0, vjust = 0)
+}
+
+all_df %>%
+  scatter_func(keyword, n = 30) #note that the n parameter here determines how many labels to include; not how many points to plot
+```
+Just looking at the top 15 keywords, we see that some seem to be pretty good at distinguishing whether a tweet describes a disaster, whereas others don't.
+
+Let's do the same for location
+```{r location targ}
+all_df %>%
+  filter(!is.na(location)) %>%
+  scatter_func(location, n = 15)
+```
+Alright, so we can see that tweets in the United States (as USA or United States) seem more associated with actual disasters. Less so for cities like New York, London, or LA.
+
+## Word Frequency
+
+Next, we'll take a look at word frequency using some tools from the [`tidytext` package](https://CRAN.R-project.org/package=tidytext), which makes text data easier to work with using other `tidyverse` packages.
+
+First, we'll get data to a point where we have one word per line.
+```{r unnesting words}
+get_words <- function(df, input) {
+  input <- enquo(input)
+  
+  df %>%
+    mutate(text = str_replace_all(!!input, "http[^[:space:]]*|@[^[:space:]]*", "")) %>% #removing links and usernames
+    unnest_tokens(word, text) %>%
+    anti_join(stop_words) #this will remove stop words (e.g. a, the, to) from our 'word' column
+}
+
+all_df_words <- all_df %>%
+  get_words(text)
+```
+
+And now let's look at the most common words across each dataset
+```{r graph common words}
+all_df_words %>%
+  filter(str_detect(word, "[a-zA-Z\\d:]")) %>% #filtering out weird symbols that got in
+  count(set, word, sort = TRUE) %>%
+  filter(n > 50) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col() +
+  facet_wrap(~ set, scales = "free") +
+  coord_flip()
+#add a sort to this
+```
+
+## RESUME HERE TOMORROW
+
