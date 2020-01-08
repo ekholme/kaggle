@@ -9,7 +9,10 @@ This notebook presents an exploratory analysis of the data for the "Real or Not?
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+```
 
+## Setting up session.
+```{r}
 set.seed(0408)
 
 library(tidyverse)
@@ -20,6 +23,7 @@ test <- read_csv(here::here("Disaster Tweets/Data/test.csv"))
 
 theme_set(theme_minimal())
 ```
+
 
 First, let's glimpse each of the datasets.
 ```{r trn glimpse}
@@ -118,18 +122,43 @@ all_df_words <- all_df %>%
   get_words(text)
 ```
 
-And now let's look at the most common words across each dataset
-```{r graph common words}
+And now let's look at the most common words across each dataset, starting with the train set
+```{r graph common words train}
 all_df_words %>%
-  filter(str_detect(word, "[a-zA-Z\\d:]")) %>% #filtering out weird symbols that got in
+  filter(str_detect(word, "[a-zA-Z\\d:]"),
+         set == "tr",
+         str_detect(word, "^amp$", negate = TRUE)) %>%
   count(set, word, sort = TRUE) %>%
-  filter(n > 50) %>%
-  ggplot(aes(x = word, y = n)) +
+  top_n(35) %>%
+  ggplot(aes(x = fct_reorder(word, n), y = n)) +
   geom_col() +
-  facet_wrap(~ set, scales = "free") +
-  coord_flip()
-#add a sort to this
+  coord_flip() +
+  labs(
+    title = "Most Common Training Set Words",
+    x = "",
+    y = "Count"
+  )
+```
+Fire, people, news, and the number 2 are the most common words here.
+
+Moving onto the test set.
+```{r graph common words test}
+all_df_words %>%
+  filter(str_detect(word, "[a-zA-Z\\d:]"),
+         set == "te",
+         str_detect(word, "^amp$", negate = TRUE)) %>%
+  count(set, word, sort = TRUE) %>%
+  top_n(35) %>%
+  ggplot(aes(x = fct_reorder(word, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Most Common Test Set Words",
+    x = "",
+    y = "Count"
+  )
 ```
 
-## RESUME HERE TOMORROW
+We see similar words showing up most often in the test set -- fire, news, people, and the number 2.
 
+__Thanks for taking the time to read through this!__
