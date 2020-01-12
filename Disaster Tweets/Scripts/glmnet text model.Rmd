@@ -8,99 +8,94 @@ set.seed(0408)
 library(tidyverse)
 library(tidytext)
 library(glmnet)
+library(tm)
 
 train <- read_csv(here::here("Disaster Tweets/Data/train.csv"))
 test <- read_csv(here::here("Disaster Tweets/Data/test.csv"))
 
 ```
 
-First, let's take our train and test data and find common words.
-```{r train clean}
-get_words <- function(df) {
-  df %>%
-    mutate(text = str_replace_all(text, "http[^[:space:]]*|@[^[:space:]]*", "")) %>% #removing links and usernames
-    unnest_tokens(word, text) %>%
-    anti_join(stop_words)
-}
+Combining dfs to do some cleaning
+```{r df clean}
+all_df <- bind_rows(train, test)
 
-test_ids <- test$id
+all_df <- all_df %>%
+  mutate(has_exclam = str_detect(text, "!"),
+         has_quest = str_detect(text, "\\?"),
+         has_hashtag = str_detect(text, "#"),
+         text = str_remove_all(text, "http[^[:space:]]*"),
+         text = str_remove_all(text, "@[^[:space:]]*"),
+         text = str_remove_all(text, "[^[:alpha:][:space:]]*"),
+         text = stripWhitespace(text),
+         text = str_to_lower(text),
+         text = removeWords(text, stopwords('en')),
+         word_count = str_count(text, "\\w+"),
+         char_count = nchar(str_remove_all(text, "[[:space:]]")),
+         avg_word_length = char_count/word_count)
 
-train <- train %>%
-  select(id, target, text) %>%
-  get_words()
-
-test <- test %>%
-  select(id, text) %>%
-  get_words()
-
-#finding common words in both
-common_words <- intersect(train$word, test$word)
-
-trn_small <- train %>%
-  filter(is.element(word, common_words))
-
-test_small <- test %>%
-  filter(is.element(word, common_words))
-
-trn_target <- trn_small %>%
-  distinct(id, target) %>%
-  select(target) %>%
-  as_vector()
-
-trn_small <- trn_small %>%
-  select(-target)
+View(all_df)
 ```
 
-Next, let's cast our text data as a sparse matrix
-```{r sparse train}
-train_sparse <- trn_small %>%
-  cast_sparse(id, word)
 
-dim(train_sparse)
+Making a bag of words
+```{r bag of words}
+source <- VectorSource(all_df$text)
+corpus <- VCorpus(source)
+
+tweets_dtm <- as_tibble(as.matrix(DocumentTermMatrix(corpus)))
 ```
 
-Running a glmnet model
-```{r glmnet train}
-trn_mod <- cv.glmnet(x = train_sparse, 
-                     y = trn_target,
-                     family = "binomial",
-                     nfolds = 50,
-                     alpha = 1)
 
-trn_mod
+Now, binding back in the word bag to our original df
+```{r df bind}
+all_df2 <- all_df %>%
+  rename(y_target = target) %>%
+  select(-c("text", "keyword", "location", "id")) %>%
+  bind_cols(tweets_dtm)
+
 ```
 
-Getting a sparse matrix of test data
-```{r test sparse}
-test_sparse <- test_small %>%
-  cast_sparse(id, word)
+Let's get rid of very sparse columns
+```{r filter sparse cols}
+sparse_cols <- all_df2 %>%
+  summarize_all(~mean(., na.rm = TRUE)) %>%
+  select_if(. >= .002) %>%
+  names() #this is a bit of a misnomer -- these are actually the non-sparse columns
 
-dim(test_sparse)
+all_df_use <- all_df2 %>%
+  select(intersect(names(all_df2), sparse_cols))
+
+rm(all_df2)
+
+train_use <- all_df_use %>%
+  filter(!is.na(y_target)) %>%
+  select(-y_target)
+
+train_target = train$target
+
+test_use <- all_df_use %>%
+  filter(is.na(y_target)) %>%
+  select(-y_target)
 ```
 
-Predicting test values with our model
-```{r test pred}
-test_preds <- predict(trn_mod, test_sparse, type = "class")
+Setting up a LASSO model
+```{r lasso model}
+lasso_mod <- cv.glmnet(x = as.matrix(train_use),
+                       y = train_target,
+                       family = "binomial",
+                       alpha = 1)
 ```
 
-Binding into a csv and submitting
-```{r submission}
+And predicting out test values
+```{r predict and write test}
+test_preds <- predict(lasso_mod, as.matrix(test_use), s = "lambda.1se", type = "class")
+
 submission <- tibble(
-  id = rownames(test_preds),
+  id = test$id,
   target = test_preds
-) %>%
-  mutate_all(as.numeric)
+)
 
-impute_data <- tibble(
-  id = setdiff(test_ids, submission$id),
-  target = 0
-  )
-
-submission <- submission %>%
-  bind_rows(impute_data) %>%
-  arrange(id)
-
-write_csv(submission, here::here("Disaster Tweets/Submissions/glmnet_initial.csv"))
+write_csv(submission, here::here("Disaster Tweets/Submissions/bag_of_words_early.csv"))
 ```
 
-Note that this actually doesn't end up being a very good model :)
+Note that this ends up getting a score of .8016, which is pretty good!
