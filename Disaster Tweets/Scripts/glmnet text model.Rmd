@@ -99,3 +99,9 @@ write_csv(submission, here::here("Disaster Tweets/Submissions/bag_of_words_early
 ```
 
 Note that this ends up getting a score of .8016, which is pretty good!
+
+### Next steps
+
++ Handle duplicate tweets
++ Do something with location and keyword data (prob weighted mean function to post-process class value?)
++ RBERT
