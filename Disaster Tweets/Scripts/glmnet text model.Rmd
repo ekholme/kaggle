@@ -15,6 +15,23 @@ test <- read_csv(here::here("Disaster Tweets/Data/test.csv"))
 
 ```
 
+Recoding target for inconsistently labeled tweets
+```{r}
+train <- train %>%
+  group_by(text) %>%
+  summarize(new_target = mean(target)) %>%
+  ungroup() %>%
+  left_join(x = train, y = .,
+            by = "text") %>%
+  mutate(target = case_when(
+    new_target > .5 ~ 1,
+    new_target < .5 ~ 0,
+    new_target == .5 ~ target
+  )) %>%
+  select(-new_target)
+```
+
+
 Combining dfs to do some cleaning
 ```{r df clean}
 all_df <- bind_rows(train, test)
@@ -95,10 +112,9 @@ submission <- tibble(
   target = test_preds
 )
 
-write_csv(submission, here::here("Disaster Tweets/Submissions/bag_of_words_early.csv"))
+write_csv(submission, here::here("Disaster Tweets/Submissions/bag_of_words_majority_vote.csv"))
 ```
 
-Note that this ends up getting a score of .8016, which is pretty good!
 
 ### Next steps
 
