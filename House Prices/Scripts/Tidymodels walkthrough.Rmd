@@ -1,0 +1,246 @@
+---
+title: "Tidymodels with House Price Data"
+author: "EE"
+date: "1/25/2020"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(0408)
+
+library(tidyverse)
+library(janitor)
+library(tidymodels)
+library(tune)
+
+train <- read_csv(here::here("House Prices/Data/train.csv")) %>%
+  clean_names()
+
+test <- read_csv(here::here("House Prices/Data/test.csv")) %>%
+  clean_names()
+
+miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound = 0) {
+  miss_tab <<- tibble(
+    column = names(data),
+    perc_miss = map_dbl(data, function(x) sum(is.na(x))/length(x))
+  ) %>%
+    filter(perc_miss > bound)
+  
+  ggplot(miss_tab, aes(x = column, y = perc_miss)) +
+    geom_bar(stat = "identity", aes(fill = ..y..)) +
+    scale_y_continuous(labels = scales::percent) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) + 
+    scale_fill_gradient(low = color1, high = color2, name = "Percent Missing") +
+    labs(
+      title = "Missingness by Variable",
+      y = "Percent Missing",
+      x = "Variables"
+    )
+}
+```
+
+We're going to skip over some of the EDA and viewing the data -- this is mostly just to get a feel for the stuff in the tidymodels package. But we'll still take a quick gander at some of the data.
+```{r}
+glimpse(train)
+
+#let's also take a glimpse at missing data real quick
+miss_plot(train)
+
+train <- train %>%
+  mutate_if(is.character, ~replace_na(., "NA"))
+
+test <- test %>%
+  mutate_if(is.character, ~replace_na(., "NA"))
+```
+
+Note that _sale price_ is our DV here.
+
+## Setting up preprocessing using `r {recipes}`
+
+We'll implement a number of preprocessing steps here. These are somewhat generic because we didn't do an EDA of our data. Again, the point of this is to get a feel for a tidymodels workflow rather than to build a really great model for this data. In these steps, we will:
+
+1. Convert all strings to factors
+2. Pool infrequent factors into an "other" category
+3. Remove near-zero variance predictors
+4. Impute missing values using k nearest neighbors
+5. Dummy out all factors
+6. Log transform our outcome (which is skewed)
+7. Mean center all numeric variables (which will be all of them at this point)
+8. Normalize all numeric variables
+
+Note that after specifying all of our steps, we use the `prep()` function to execute them and create a recipe object. To apply this recipe to data (and return a preprocessed tibble), we use the `juice()` function. Note that `juice` will work with training data, but we'll need `bake()` to apply this to our test data.  
+```{r preproc recipe}
+preprocess_recipe <- train %>%
+  select(-id) %>%
+  recipe(sale_price ~ .) %>%
+  step_string2factor(all_nominal()) %>% #this converts all of our strings to factors
+  step_other(all_nominal(), threshold = .05) %>% #this will pool infrequent factors into an "other" category
+  step_nzv(all_predictors()) %>% #this will remove zero or near-zero variance predictors
+  step_knnimpute(all_predictors(), neighbors = 5) %>% #this will impute values for predictors using KNN
+  step_dummy(all_nominal()) %>% #this will dummy out all factor variables
+  step_log(all_outcomes()) %>% #log transforming the outcome because it's skewed
+  step_center(all_numeric(), -all_outcomes()) %>% #this will mean-center all of our numeric data
+  step_scale(all_numeric(), -all_outcomes()) %>% #this will normalize numeric data
+  prep()
+
+preprocess_recipe
+
+train_prep <- juice(preprocess_recipe)
+
+test_prep <- preprocess_recipe %>%
+  bake(test)
+
+```
+
+## Cross Validation using `r {rsample}`
+
+Next, we'll want to create folds we can use for cross validation in our modeling. We can create however many folds we want, but we'll create 5 here usin our preprocessed training data.
+
+```{r cv folds}
+train_cv <- train_prep %>%
+  vfold_cv(v = 5)
+```
+
+So, that one is pretty straightforward :)
+
+## Model Specifications using `r {parsnip}`
+
+Next, we'll specify the models we're going to run on this data. For illustration, we'll run an elastic net model and a random forest model. We'll start with the elastic net.
+
+```{r glmnet spec}
+glmnet_mod <- linear_reg(
+  mode = "regression",
+  penalty = tune(),
+  mixture = tune()
+) %>%
+  set_engine("glmnet")
+```
+
+And next the random forest model
+```{r rf spec}
+rf_mod <- rand_forest(
+  mode = "regression",
+  trees = 500,
+  mtry = tune(),
+  min_n = tune()
+) %>%
+  set_engine("ranger")
+```
+
+## Speicfying model parameters using `r {dials}`
+
+We set some of the parameters in the previous model to have values of `tune()`. This allows us to vary those parameter values to find the combinations that create the best model. To implement this, we'll need to set up a grid of parameters to test various hyperparameter values, & we can do this using the `r {dials}` package.
+
+As a reminder, an elastic net model takes two tuning parameter: the penalty (the lambda value), which describes the total amount of penalty to apply to coefficients, and the mixture (the alpha value), which describes the proportion of the penalty that is L1.
+```{r glmnet params}
+glmnet_hypers <- parameters(penalty(), mixture()) %>%
+  grid_max_entropy(size = 20)
+```
+
+For our random forest model, we also have two tuning parameters: mtry, which represents the number of predictors to be randomly sampled at each tree split, and min_n, which represents the smallest number of observations required to split a node further.
+```{r rf params}
+rf_hypers <- parameters(mtry(c(5, floor(ncol(train_prep)/3))), min_n()) %>% #we could specify a different mtry range, but this seems reasonable
+  grid_random(size = 20)
+```
+
+## Setting up a tuning grid with `r {tune}`
+
+Ok, now we have our data preprocessed, our models specified, our splits set, and our hyperparameter grids specified. We can now tune our different model types using the `tune_grid()` function.
+
+
+Let's start with the elastic net model.
+```{r glmnet tune}
+glmnet_tuned_results <- tune_grid(
+  formula = sale_price ~ .,
+  model = glmnet_mod,
+  resamples = train_cv,
+  grid = glmnet_hypers,
+  metrics = metric_set(mae), #we'll just use mae here, although there are other metrics we can choose for regression
+  control = control_grid()
+)
+```
+
+
+We can then use the `show_best()` function to see which hyperparameters gave us the best model. After seeing this, we can choose the simplest model (by penalty) that's within one standard error of the numerically best model. For this, we'll choose the model with the most penalty (within one se).
+```{r glmnet best}
+glmnet_tuned_results %>%
+  show_best(maximize = FALSE) #we need to remember to set maximize to false here because we want to minimize MAE.
+
+best_glmnet_params <- glmnet_tuned_results %>%
+  select_by_one_std_err(metric = "mae", maximize = FALSE, (penalty)) %>%
+  select(penalty, mixture)
+```
+
+
+Now we can finalize our elastic net model.
+```{r final glmnet}
+glmnet_final_mod <- glmnet_mod %>%
+  finalize_model(parameters = best_glmnet_params) %>%
+  fit(sale_price ~ ., data = train_prep)
+```
+
+
+And then let's move on to the random forest model. First we'll tune it.
+```{r rf tune}
+rf_tuned_results <- tune_grid(
+  formula = sale_price ~ .,
+  model = rf_mod,
+  resamples = train_cv,
+  grid = rf_hypers,
+  metrics = metric_set(mae),
+  control = control_grid()
+)
+```
+
+
+And then we can find the best model. We'll just use the `select_best()` function here rather than `select_by_one_std_err()`
+```{r rf best}
+rf_tuned_results %>%
+  show_best(maximize = FALSE)
+
+best_rf_params <- rf_tuned_results %>%
+  select_best(maximize = FALSE)
+```
+
+Now that we have these, we can finalize our random forest model.
+```{r final rf}
+rf_final_mod <- rf_mod %>%
+  finalize_model(best_rf_params) %>%
+  fit(sale_price ~ ., data = train_prep)
+```
+
+
+One other point to make -- looking at the results (the mean column in the tibble produced by `show_best()`), we can see that the elastic net model and the random forest model produce somewhat similar results. If they actually are very close to each other in terms of accuracy, we'd probably just want to use the elastic net model since it's easier to interpret. But for this, we'll still make predictions using both.
+
+## Predicting on new data
+
+We have this test set in the data that we haven't touched yet. Now we can make predictions on this using our final elastic net model and our final random forest model.
+
+```{r pred glmnet}
+
+glmnet_price <- exp(predict(glmnet_final_mod, new_data = test_prep)) %>%
+  as_vector()
+
+glmnet_preds <- tibble(
+  Id = test$id,
+  SalePrice = glmnet_price
+  )
+
+write_csv(glmnet_preds, here::here("House Prices/Submissions/glmnet_preds.csv"))
+```
+
+
+```{r pred rf}
+rf_price <- exp(predict(rf_final_mod, new_data = test_prep)) %>%
+  as_vector()
+
+rf_preds <- tibble(
+  Id = test$id,
+  SalePrice = rf_price
+)
+
+write_csv(rf_preds, here::here("House Prices/Submissions/rf_preds.csv"))
+```
+
