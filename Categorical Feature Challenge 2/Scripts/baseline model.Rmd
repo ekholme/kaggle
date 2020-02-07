@@ -1,0 +1,26 @@
+---
+title: "Baseline model"
+author: "EE"
+date: "2/7/2020"
+output: html_document
+---
+
+To get a baseline model that we'll just our other models' performance against, we'll simply use the sample mean of the target column in the train data as the prediction for each of the test observations.
+
+```{r read in, echo = FALSE}
+library(tidyverse)
+
+train <- read_csv(here::here("Categorical Feature Challenge 2/Data/train.csv"))
+
+test <- read_csv(here::here("Categorical Feature Challenge 2/Data/test.csv"))
+```
+
+```{r submission}
+submission <- tibble(
+  id = test$id,
+  target = mean(train$target)
+)
+
+write_csv(submission, here::here("Categorical Feature Challenge 2/Submissions/baseline_model.csv"))
+```
+

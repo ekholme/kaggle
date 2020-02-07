@@ -1,0 +1,102 @@
+---
+title: "Cat Encoding 2 EDA"
+author: "EE"
+date: "2/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+
+train <- read_csv(here::here("Categorical Feature Challenge 2/Data/train.csv"))
+
+test <- read_csv(here::here("Categorical Feature Challenge 2/Data/test.csv"))
+
+miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound = 0) {
+  miss_tab <<- tibble(
+    column = names(data),
+    perc_miss = map_dbl(data, function(x) sum(is.na(x))/length(x))
+  ) %>%
+    filter(perc_miss > bound)
+  
+  ggplot(miss_tab, aes(x = column, y = perc_miss)) +
+    geom_bar(stat = "identity", aes(fill = ..y..)) +
+    scale_y_continuous(labels = scales::percent) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) + 
+    scale_fill_gradient(low = color1, high = color2, name = "Percent Missing") +
+    labs(
+      title = "Missingness by Variable",
+      y = "Percent Missing",
+      x = "Variables"
+    )
+}
+```
+
+The point of this kernel is to do an EDA of the data to inform how we build our models later on.
+
+### Reshaping and Cleaning
+
+Doing a bit of reshaping to make data easier to plot, plus some cleaning/transforming
+```{r reshaping}
+targ <- train$target
+
+train <- train %>%
+  mutate(target = as.factor(target)) %>%
+  mutate(bin_4 = if_else(bin_4 == "Y", TRUE, FALSE)) %>%
+  mutate_at(vars(matches("bin")), ~as.logical(.)) %>%
+  mutate_at(vars(matches("nom|ord")), ~as_factor(.))
+
+```
+
+
+### Target Mean
+
+First, let's look at the distribution of the outcome on its own.
+```{r}
+mean(targ)
+
+ggplot(train) +
+  geom_bar(aes(target, fill = target))
+```
+
+So, about a fifth of all responses are "hits" for the target.
+
+### Unique Counts
+
+Next, let's take a look at how many unique values we have for each variable
+```{r distinct counts}
+train %>%
+  summarize_all(n_distinct)
+```
+
+Alright, so, including our `NA` values, we have anywhere from 3 distinct values per column (for the binary columns) to 2219 distinct values per column (for our nom_9 variable). One interesting thing to note here is that "day" only has 8 unique values, which is fewer than I would have guessed.
+
+Another thing potentially worth noting is that ordinal variables 3, 4, and 5 have 16, 27, and 191 unique values, respectively, and so we can probably treat those as continuous. We could possibly also treat ord_2, which has 7 distinct values, as continuous as well.
+
+### Missingness
+
+We'll probably want to see how much missingness is in each variable. The `miss_plot()` function defined above will give us a plot with the proportion of missingness for each variable in our dataset
+```{r missingness}
+miss_plot(train)
+```
+
+Ok, so, pretty uniformly we have around 3% missing, and this looks like it holds for all of our features. This shouldn't be too hard to deal with.
+
+### Binary Variables
+
+We can check out the distribution of our binary variables now, which will be the easiest to visualize. We'll start with each variable independently, then look at how they relate to the outcome, and then examine the extent to which they're correlated
+
+```{r binary univariate}
+train %>%
+  select(matches("bin")) %>%
+  pivot_longer(cols = everything(),
+               names_to = "key",
+               values_to = "vals") %>%
+  count(key, vals) %>%
+  ggplot() +
+    geom_col(aes(fill = vals, x = key, y = n), position = "dodge")
+```
+
