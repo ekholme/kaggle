@@ -5,15 +5,15 @@ date: "2/7/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r initial}
 
 library(tidyverse)
 library(lubridate)
+library(vroom)
 
-train <- read_csv(here::here("Categorical Feature Challenge 2/Data/train.csv"))
+train <- vroom(here::here("Categorical Feature Challenge 2/Data/train.csv"))
 
-test <- read_csv(here::here("Categorical Feature Challenge 2/Data/test.csv"))
+test <- vroom(here::here("Categorical Feature Challenge 2/Data/test.csv"))
 
 miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound = 0) {
   miss_tab <<- tibble(
@@ -37,9 +37,9 @@ miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound 
 
 The point of this kernel is to do an EDA of the data to inform how we build our models later on.
 
-### Reshaping and Cleaning
+### Cleaning
 
-Doing a bit of reshaping to make data easier to plot, plus some cleaning/transforming
+Doing a bit of transforming and cleaning
 ```{r reshaping}
 targ <- train$target
 
@@ -100,3 +100,99 @@ train %>%
     geom_col(aes(fill = vals, x = key, y = n), position = "dodge")
 ```
 
+```{r}
+train %>%
+  select(matches("bin|targ")) %>%
+  pivot_longer(cols = matches("bin"),
+               names_to = "key",
+               values_to = "vals") %>%
+  count(key, target, vals) %>%
+  ggplot() +
+  geom_col(aes(fill = vals, x = key, y = n), position = "dodge") +
+  facet_wrap(~target)
+  
+```
+
+```{r}
+train %>%
+  select(matches("bin")) %>%
+  mutate_all(as.numeric) %>%
+  cor(use = "pairwise.complete.obs")
+```
+
+Ok, so these are pretty much uncorrelated
+
+### Ordinal Variables
+
+Let's take a look at our ordinal variables now. I also noticed that I was writing the same code a lot earlier, so I'll write a function to select, pivot longer, and count
+
+```{r}
+sel_piv_cnt <- function(df, vars) {
+  df %>%
+  select(matches(vars)) %>%
+  pivot_longer(cols = matches(vars),
+               names_to = "key",
+               values_to = "vals") %>%
+  count(key, vals)
+}
+```
+
+Let's visualize counts of our ordinal variables now
+
+```{r}
+train %>%
+  sel_piv_cnt("ord") %>%
+  ggplot() +
+    geom_col(aes(fill = vals, x = vals, y = n), position = "dodge") +
+  facet_wrap(~key, scales = "free") +
+  theme(
+    legend.position = "none"
+  )
+
+```
+
+And let's also see the distribution of the target variable
+```{r}
+train %>%
+  select(matches("ord|targ")) %>%
+  pivot_longer(cols = matches("ord"),
+               names_to = "key",
+               values_to = "vals") %>%
+  count(key, target, vals) %>%
+  ggplot() +
+  geom_col(aes(fill = target, x = vals, y = n), position = "dodge") +
+  facet_wrap(~key, scales = "free") +
+  theme(
+    legend.position = "none"
+  )
+```
+
+### Nominal Variables
+
+```{r}
+train %>%
+  sel_piv_cnt("nom") %>%
+  ggplot() +
+    geom_col(aes(fill = vals, x = vals, y = n), position = "dodge") +
+  facet_wrap(~key, scales = "free") +
+  theme(
+    legend.position = "none"
+  )
+```
+
+```{r}
+train %>%
+  select(matches("nom|targ")) %>%
+  pivot_longer(cols = matches("nom"),
+               names_to = "key",
+               values_to = "vals") %>%
+  count(key, target, vals) %>%
+  ggplot() +
+  geom_col(aes(fill = target, x = vals, y = n), position = "dodge") +
+  facet_wrap(~key, scales = "free", shrink = TRUE) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+This is still a work in progress -- I'll plan to pick this up later to further investigate the data.
