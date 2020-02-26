@@ -68,7 +68,7 @@ glmnet_tuned_results <- tune_grid(
   model = glmnet_mod,
   resamples = train_cv,
   grid = glmnet_hypers,
-  metrics = metric_set(roc_auc), #we'll just use mae here, although there are other metrics we can choose for regression
+  metrics = metric_set(roc_auc),
   control = control_grid()
 )
 
