@@ -1,0 +1,160 @@
+---
+title: "House Price Mod"
+author: "EE"
+date: "4/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(janitor)
+library(skimr)
+
+theme_set(theme_minimal())
+
+train <- read_csv(here::here("House Prices/Data/train.csv")) %>%
+  clean_names()
+
+test <- read_csv(here::here("House Prices/Data/test.csv")) %>%
+  clean_names()
+
+miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound = 0) {
+  miss_tab <<- tibble(
+    column = names(data),
+    perc_miss = map_dbl(data, function(x) sum(is.na(x))/length(x))
+  ) %>%
+    filter(perc_miss > bound)
+  
+  ggplot(miss_tab, aes(x = column, y = perc_miss)) +
+    geom_bar(stat = "identity", aes(fill = ..y..)) +
+    scale_y_continuous(labels = scales::percent) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) + 
+    scale_fill_gradient(low = color1, high = color2, name = "Percent Missing") +
+    labs(
+      title = "Missingness by Variable",
+      y = "Percent Missing",
+      x = "Variables"
+    )
+}
+```
+
+```{r}
+skim(train)
+```
+
+Let's look at the log of the lot area, since the raw lot area is heavily skewed.
+```{r}
+ggplot(train) +
+  geom_histogram(aes(log(lot_area)))
+```
+
+We'll probably want to log every area/square footage variable in the dataset, but let's take a look at a couple more.
+```{r}
+ggplot(train) +
+  geom_histogram(aes(log(x1st_flr_sf)))
+
+ggplot(train) +
+  geom_histogram(aes(log(x2nd_flr_sf)))
+```
+
+And let's also look at missingness
+```{r}
+miss_plot(train)
+```
+
+We'll want to come up with an approach for dealing with these. With a note that missingness on some of these is actually an indicator that the feature is absent/doesn't exist (e.g. fence). See below for cleaning steps.
+
+## Preprocessing Recipe
+```{r recipe}
+pre_rec <- recipe(sale_price ~ ., data = train) %>%
+  update_role(id, new_role = "ID") %>%
+  step_string2factor(all_nominal()) %>%
+  step_other(all_nominal(), threshold = .05) %>%
+  step_log(matches("sf|area|lot_frontage"), offset = 1) %>%
+  step_log(all_outcomes(), skip = TRUE) %>%
+  step_knnimpute(all_numeric(), -all_outcomes(), neighbors = 5) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal()) %>%
+  step_nzv(all_predictors())
+```
+
+
+## Setting up Resamples
+Bootstrapping 25 resamples here to train on
+```{r boots}
+set.seed(0408)
+train_boot <- bootstraps(train, times = 25)
+```
+
+## Setting up the Model
+```{r}
+gbm_mod <- boost_tree() %>%
+  set_args(
+    mtry = tune(),
+    min_n = 10,
+    tree_depth = tune(),
+    trees = 2000,
+    learn_rate = .01,
+  ) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+```
+
+## Putting Model and Recipe into a Workflow
+```{r workflow}
+gbm_work <- workflow() %>%
+  add_recipe(pre_rec) %>%
+  add_model(gbm_mod) 
+```
+
+
+## Setting up Tuning Grid & Fitting
+```{r}
+gbm_params <- parameters(gbm_work)
+
+gbm_params <- gbm_params %>%
+  update(mtry = mtry(c(1L, 10L)))
+
+gbm_grid <- gbm_params %>%
+  grid_max_entropy(size = 20)
+
+doParallel::registerDoParallel()
+set.seed(0408)
+gbm_tuned <- gbm_work %>%
+  tune_grid(
+    resamples = train_boot,
+    grid = gbm_grid,
+    metrics = metric_set(rmse)
+  )
+```
+
+## Selecting the Best Parameters & Finalizing Model
+```{r finalize model}
+best_params <- select_best(gbm_tuned, metric = "rmse", maximize = FALSE)
+
+best_params
+
+gbm_work <- gbm_work %>%
+  finalize_workflow(best_params)
+
+gbm_fit <- fit(gbm_work, data = train)
+```
+
+## Predicting Test Data
+```{r predict}
+gbm_preds <- predict(gbm_fit, new_data = test)
+
+exp_preds <- exp(gbm_preds) %>% as_vector()
+
+gbm_sub <- tibble(
+  id = test$id,
+  SalePrice = exp_preds
+)
+
+write_csv(gbm_sub, here::here("House Prices/Submissions/gbm_preds.csv"))
+```
+
