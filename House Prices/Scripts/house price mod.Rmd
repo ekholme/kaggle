@@ -5,6 +5,7 @@ date: "4/25/2020"
 output: html_document
 ---
 
+The purpose of this notebook is to show how to do some basic feature engineering and then fit an xgboost model using the tidymodels framework.
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -41,7 +42,9 @@ miss_plot <- function(data, color1 = "steelblue1", color2 = "steelblue4", bound 
 }
 ```
 
-```{r}
+
+First, let's take a quick look at our training data using the skim() function from the skimr package.
+```{r skim}
 skim(train)
 ```
 
@@ -60,14 +63,16 @@ ggplot(train) +
   geom_histogram(aes(log(x2nd_flr_sf)))
 ```
 
-And let's also look at missingness
+And let's also look at missingness across variables. 
 ```{r}
 miss_plot(train)
 ```
 
-We'll want to come up with an approach for dealing with these. With a note that missingness on some of these is actually an indicator that the feature is absent/doesn't exist (e.g. fence). See below for cleaning steps.
+Some of the missingness here is actually meaningful -- i.e. missing data on the "alley" variable means that the house doesn't have alley access, etc. The easiest approach for dealing with this in nominal variables will just be to dummy out the factors and let NA be its own level. For numeric variables, I'll impute using knn.
 
 ## Preprocessing Recipe
+
+This step sets up a recipe that will create the design matrix for our model. To learn more about the preprocessing steps, check out the recipes package.
 ```{r recipe}
 pre_rec <- recipe(sale_price ~ ., data = train) %>%
   update_role(id, new_role = "ID") %>%
@@ -84,13 +89,15 @@ pre_rec <- recipe(sale_price ~ ., data = train) %>%
 
 
 ## Setting up Resamples
-Bootstrapping 25 resamples here to train on
+Bootstrapping 25 resamples here to train on.
 ```{r boots}
 set.seed(0408)
 train_boot <- bootstraps(train, times = 25)
 ```
 
 ## Setting up the Model
+
+Here, I'm setting up an xgboost model with a hardcoded min_n, number of trees, and learning rate. I'll tune the values for mtry and tree depth during training.
 ```{r}
 gbm_mod <- boost_tree() %>%
   set_args(
@@ -105,6 +112,8 @@ gbm_mod <- boost_tree() %>%
 ```
 
 ## Putting Model and Recipe into a Workflow
+
+This step puts the previous recipe and the model we specified into a workflow object, which makes it easier to carry these around for later fitting.
 ```{r workflow}
 gbm_work <- workflow() %>%
   add_recipe(pre_rec) %>%
@@ -113,6 +122,8 @@ gbm_work <- workflow() %>%
 
 
 ## Setting up Tuning Grid & Fitting
+
+Here I'm setting up values for mtry to tune on. I'm using the default values for tree_depth. Afterward, I'm specifying a grid of values to tune across and then fitting the model.
 ```{r}
 gbm_params <- parameters(gbm_work)
 
@@ -133,6 +144,8 @@ gbm_tuned <- gbm_work %>%
 ```
 
 ## Selecting the Best Parameters & Finalizing Model
+
+Here, I'm choosing the best model parameters from the fitting, finalizing the workflow to incorporate these optimal parameters, and fitting the final model.
 ```{r finalize model}
 best_params <- select_best(gbm_tuned, metric = "rmse", maximize = FALSE)
 
@@ -155,6 +168,6 @@ gbm_sub <- tibble(
   SalePrice = exp_preds
 )
 
-write_csv(gbm_sub, here::here("House Prices/Submissions/gbm_preds.csv"))
+write_csv(gbm_sub, "submission.csv")
 ```
 
