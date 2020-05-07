@@ -6,8 +6,7 @@ output: html_document
 ---
 
 The purpose of this notebook is to show how to do some basic feature engineering and then fit an xgboost model using the tidymodels framework.
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup}
 
 library(tidyverse)
 library(tidymodels)

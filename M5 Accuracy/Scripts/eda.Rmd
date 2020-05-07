@@ -1,0 +1,286 @@
+---
+title: "M5 EDA"
+author: "EE"
+date: "5/1/2020"
+output: html_document
+---
+
+# Overview
+
+This notebook is intended to explore the data in the M5 Accuracy competition on Kaggle. The goal of the contest is to predict the number of items sold -- for each item listed -- each day for four weeks in the future. That is, if we are predicting the number of baseballs sold, we want to predict 1 day in the future, 2 days, etc, through 28 days, and to repeat this for baseball bats, frozen dinners, windshield washer fluid, etc.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(janitor)
+library(hrbrthemes)
+
+theme_set(theme_ipsum())
+
+calendar <- read_csv(here::here("M5 Accuracy/Data/calendar.csv"))
+train <- read_csv(here::here("M5 Accuracy/Data/sales_train_validation.csv"))
+#sell_prices <- read_csv(here::here("M5 Accuracy/Data/sell_prices.csv"))
+```
+
+# Calendar Exploration
+
+Let's take a look at the calendar file first. This is meant to help give us a better understanding of the dates and events taking place on each day in the dataset. 
+```{r cal glimpse}
+glimpse(calendar)
+```
+Note that the "snap" variables represent whether the stores in each state allowed SNAP purchases on the given date.
+
+Ok, and then let's look at the date range here.
+```{r date range}
+range(calendar$date) #about five and a half years of data
+
+sum(is.na(calendar$date)) #no missing dates
+```
+
+And let's also see what events we have represented.
+```{r events}
+unique(calendar$event_name_1)
+unique(calendar$event_name_2)
+```
+
+Strange that we get the end of some events (Hannukah) but not the beginning.
+
+# Training Set Exploration
+
+Next, let's look at the main training dataset. We have 1919 variables, with many of the variables corresponding to a given date (any named "d_.*"), and the value corresponding to the number of units sold that day. The first few columns in the dataset are likely ones that are more informative initially.
+```{r}
+glimpse(train[, 1:8])
+```
+
+We have an id column, which represents a unique observation of the item id and the store id. We also have ids for items, departments, categories, stores, and states. 
+
+The easiest way to explore the data is going to be to reshape it from wide to long, so let's go ahead and do that. I'm also going to join in the date and weekday values from the calendar file.
+```{r reshape}
+train <- train %>%
+  pivot_longer(
+    cols = starts_with("d_"),
+    names_to = "day",
+    values_to = "sold"
+  ) %>%
+  left_join(calendar %>% 
+              select(d, date, weekday),
+            by = c("day" = "d"))
+```
+
+
+
+Great, now let's look at the data. We know the data comes from CA, TX, and WI, but let's see how many stores in each state we have
+```{r store count}
+train %>%
+  distinct(state_id, store_id) %>%
+  count(state_id)
+```
+
+Let's also take a look at total sales by state
+```{r}
+train %>%
+  count(state_id, wt = sold, name = "sold") %>%
+  ggplot(aes(y = state_id, x = sold, fill = state_id)) +
+    geom_col()
+```
+CA with the most sales, and WI and TX have approximately the same number. But also recall that CA has one additional store.
+
+And let's take a look at the departments we have and how many items we see in each
+```{r dept and item count}
+train %>%
+  distinct(dept_id, item_id) %>%
+  count(dept_id)
+```
+
+Next, let's take a look at the total sales of items by category (a level above dept). This will give us a sense of, over the entire timeframe of our sample, the distribution of item sales.
+
+```{r category sale distribs}
+train %>%
+  group_by(cat_id, item_id) %>%
+  summarize(sales = sum(sold, na.rm = TRUE)) %>%
+  ungroup %>%
+  ggplot(aes(x = sales, y = cat_id, fill = cat_id)) +
+    ggridges::geom_density_ridges(rel_min_height = .01, alpha = .5)
+    
+```
+
+Right, so that looks wonky. Let's see what's causing this.
+```{r cat sales inspect}
+train %>%
+  group_by(cat_id, item_id) %>%
+  summarize(sales = sum(sold, na.rm = TRUE)) %>%
+  ungroup %>%
+  arrange(desc(sales)) %>%
+  head()
+```
+
+It looks like we have a handful of food items with huge numbers of sales, including one with over 1 million items sold (my guess is milk, but we can look at that later).
+
+Let's revisit the previous plot with a log scale to see if that helps.
+```{r}
+train %>%
+  group_by(cat_id, item_id) %>%
+  summarize(sales = sum(sold, na.rm = TRUE)) %>%
+  ungroup %>%
+  ggplot(aes(x = log(sales), y = cat_id, fill = cat_id)) +
+    ggridges::geom_density_ridges(rel_min_height = .01, alpha = .5)
+```
+
+For the final piece in this section, let's take a look at total sales by day of the week.
+```{r sale per weekday}
+train %>%
+  count(weekday, wt = sold, name = "sold") %>%
+  ggplot(aes(x = fct_relevel(weekday, unique(train$weekday)), y = sold, fill = weekday)) +
+    geom_col() +
+    theme(
+      legend.position = "none"
+    )
+```
+This is more or less what I would expect -- Saturday & Sunday show the highest sales, with Friday being the next highest, and the other weekdays being slightly lower.
+
+## Time Series Visualizations
+It would be impractical to try to visualize the time series for *all* of the items, but lets grab a random sample of the items in here and visualize those time series. I'm going to choose 9 because it gives me a square number to facet by, but this is a pretty arbitrary number.
+
+```{r random ts items}
+set.seed(0408)
+items <- sample(unique(train$item_id), size = 9, replace = FALSE)
+
+train %>%
+  filter(item_id %in% items) %>%
+  ggplot(aes(x = date, y = sold, color = item_id)) +
+    geom_line() +
+    theme_minimal() +
+    facet_wrap(~item_id) +
+    theme(
+      legend.position = "none"
+    )
+```
+
+Let's also take a look by category
+```{r}
+train %>%
+  count(cat_id, date, wt = sold, name = "sold") %>%
+  ggplot(aes(x = date, y = sold, color = cat_id)) +
+    geom_line()
+```
+
+We see that food outsells the other two departments in a big way. We also see a dip to 0 right at the end of every year, which I assume is Christmas and when stores are closed. 
+
+Let's try to compute a rolling average with a 4 week window to smooth out some of the noise we see in the data
+```{r}
+library(RcppRoll)
+
+train %>%
+  group_by(cat_id, date) %>%
+  summarize(sold = sum(sold)) %>%
+  ungroup() %>%
+  group_by(cat_id) %>%
+  mutate(rolled_mean = roll_mean(sold, n = 28L, align = "right", na.rm = TRUE, fill = NA_real_)) %>%
+  ungroup() %>%
+  ggplot(aes(x = date, y = rolled_mean, color = cat_id)) +
+    geom_line()
+```
+
+Using this 4-week rolling average window, we get less peaky lines, and it's easier to see longer-term trends. For instance, looking at household items, we see seasonal dips every winter, whereas we don't see this as much for hobbies, which seems to show a smoother line than either foods or houshold.
+
+Lets also take a look at this same plot but taking the state into account to see if there are any state effects
+```{r}
+train %>%
+  group_by(cat_id, date, state_id) %>%
+  summarize(sold = sum(sold)) %>%
+  ungroup() %>%
+  group_by(cat_id, state_id) %>%
+  mutate(rolled_mean = roll_mean(sold, n = 28L, align = "right", na.rm = TRUE, fill = NA_real_)) %>%
+  ungroup() %>%
+  ggplot(aes(x = date, y = rolled_mean, color = state_id)) +
+    geom_line() +
+    facet_wrap(~cat_id, ncol = 1) +
+    theme_minimal()
+```
+
+Trends in 28-day rolling averages for each department look similar-ish. California definitely has a higher baseline than TX and WI for food, and the time series for food in CA seems to show more variability. There also seems to be a slightly different trend for food in WI than we see in TX or CA, particularly around 2012-2013. Household and Hobbie trends look very similar and generally show less variability (although, again let's remember that these are 28 day averages)
+
+## SNAP Visualizations
+
+Beyond these time series, it might also be worthwhile to take a look at the SNAP sales. SNAP stands for the "Supplemental Nutrition Assistance Program" and helps provide "nutrition benefits to supplement the food budget of needy families so they can purchase healthy food..." Given this, I'd expect to see increased food sales on these days, but we might also get some carryover effects for other departments -- people might be inclined to buy household items since they're already in the store shopping for food.
+
+First, let's take a look at how many SNAP and non-SNAP days we have per state.
+```{r}
+
+train <- calendar %>%
+  select(date, starts_with("snap")) %>%
+  pivot_longer(cols = starts_with("snap"),
+               names_to = "state_id",
+               values_to = "snap",
+               names_prefix = "snap_") %>%
+  left_join(x = train, y = .,
+            by = c("date", "state_id")) #adding the SNAP days into the training set
+
+train %>%
+  count(state_id, snap) %>%
+  group_by(state_id) %>%
+  mutate(perc = n/sum(n)) %>%
+  select(-n)
+```
+Ok, so we see that states have the same % of SNAP and non-SNAP days. My assumption is that there's some sort of federal law mandating the number of SNAP days that states must have per year.
+
+Next, let's take a look at average items sold across categories on SNAP vs non-SNAP days.
+```{r}
+train %>%
+  group_by(snap, cat_id) %>%
+  summarize(sales = mean(sold)) %>%
+  ungroup() %>%
+  ggplot(aes(x = cat_id, y = sales, fill = as.factor(snap))) +
+    geom_col(position = "dodge")
+```
+This is basically what we'd expect. Considerably higher sales for food on SNAP days vs non-SNAP days, whereas we see slight differences for hobbies and household. This is likely due to the effect I mentioned previously, although it could have to do with the actual day of the week that SNAP days happen to fall on as well. Regardless, these differences don't seem meaningful.
+
+# Sale Price
+
+Finally, let's take a look at the sale price data. It might be useful to have an understanding of how much different items cost as well as to see whether there's any relationship between the cost of an item and the number of items sold.
+
+```{r}
+sell_prices <- read_csv(here::here("M5 Accuracy/Data/sell_prices.csv"))
+
+glimpse(sell_prices)
+```
+
+So, we have the price per item for each store for each week. Glancing at this, my sense is that the price of items doesn't change too much from week to week, and I also kinda doubt there are large differences between stores (and between states). So, to simplify things during exploration, I'm just going to take the average price of each item across stores and time points. I'm also going to reconstruct the cat_id variable just in case.
+```{r}
+avg_prices <- sell_prices %>%
+  group_by(item_id) %>%
+  summarize(avg_price = mean(sell_price, na.rm = TRUE)) %>%
+  mutate(cat_id = str_remove_all(item_id, "[^A-Z]+")) #reconstructing our cat_id variable here
+
+avg_prices
+```
+
+Let's take a look at the price distribution, then.
+```{r}
+avg_prices %>%
+  ggplot(aes(x = avg_price, y = cat_id, fill = cat_id)) +
+    ggridges::geom_density_ridges(rel_min_height = .01, alpha = .5)
+
+```
+
+The distributions are pretty different here, especially for foods. The vast majority of food items cost less than $5. We see longer tails for the hobbies and household distributions, meaning more items cost more money. And it would appear that household items seem to cost the most, on average.
+
+Based on these distributions, and based on the earlier distributions showing number of sales per category, I'm going to guess that there's a negative association between sale price and number of items sold, albeit a modest one. But let's take a look anyway. Again, I'm going to use average sale price and average items sold across the entire time period to simplify things. I'm also going to take the log of both the average price and the average number of items sold to correct for the skew in the distributions.
+
+```{r}
+glimpse(train)
+
+train %>%
+  group_by(item_id, cat_id) %>%
+  summarize(sales = mean(sold, na.rm = TRUE)) %>%
+  left_join(avg_prices, by = c("item_id", "cat_id")) %>%
+  ggplot(aes(x = avg_price, y = sales)) +
+    geom_point(aes(color = cat_id), alpha = .5) +
+    geom_smooth(method = lm, color = "black") +
+    scale_y_log10() +
+    scale_x_log10()
+```
+Right, so, we see a moderate negative relationship (across all categories) between the price of an item and the number of items sold.
+
+That's all I'm going to look at for now, but I may add onto this eda a bit more once I dive into some predictions.
