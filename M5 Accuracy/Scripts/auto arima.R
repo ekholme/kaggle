@@ -10,7 +10,7 @@ library(zoo)
 library(sweep)
 #library(fable)
 #library(tsibble)
-#library(lubridate)
+library(lubridate)
 
 calendar <- read_csv(here::here("M5 Accuracy/Data/calendar.csv"))
 train <- vroom::vroom(here::here("M5 Accuracy/Data/sales_train_validation.csv"))
@@ -63,3 +63,26 @@ mod_preds <- map(items,
   ) %>%
   unnest(preds)
 
+#getting subs
+trn_ind <- vroom::vroom(here::here("M5 Accuracy/Data/sales_train_validation.csv")) %>%
+  select(id, item_id) %>%
+  left_join(mod_preds,
+            by = c("item_id" = "item")) %>%
+  mutate(id = if_else(index > as_date("2016-05-22"), str_replace_all(id, "validation", "evaluation"), id),
+         f_num = paste0("F", rep(1:28, times = 20*length(items))))
+
+val <- trn_ind %>%
+  filter(str_detect(id, "validation")) %>%
+  select(-c("item_id", "index")) %>%
+  pivot_wider(names_from = f_num,
+              values_from = sold)
+
+eval <- trn_ind %>%
+  filter(str_detect(id, "evaluation")) %>%
+  select(-c("item_id", "index")) %>%
+  pivot_wider(names_from = f_num,
+              values_from = sold)
+
+sub <- bind_rows(val, eval)
+
+write_csv(sub, here::here("M5 Accuracy/Submissions/auto_arima.csv"))
