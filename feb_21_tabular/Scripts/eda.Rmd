@@ -1,0 +1,178 @@
+---
+title: "February Tabular Playground EDA"
+author: "EE"
+date: "2/6/2021"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+# Load Packages & Setup
+
+```{r setup, echo = TRUE, results = "hide", warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(harrypotter) #for colors
+library(tidytext) #for reorder_within function
+library(ggridges)
+
+herm <- harrypotter::hp(n = 1, option = "HermioneGranger")
+
+opts <- options(
+  ggplot2.discrete.fill = list(
+    harrypotter::hp(n = 3, option = "HermioneGranger"),
+    harrypotter::hp(n = 7, option = "Always")
+  )
+)
+
+theme_set(theme_minimal())
+
+##reading in data
+trn <- vroom::vroom(here::here("feb_21_tabular/Data/train.csv"))
+test <- vroom::vroom(here::here("feb_21_tabular/Data/test.csv"))
+```
+
+
+# Missingness
+
+Checking for missingness
+
+```{r}
+trn %>%
+  summarize(across(everything(), ~sum(is.na(.x))))
+```
+
+No missing data in the train set.
+
+# Explore Target
+
+The first thing we want to do is explore the target variable.
+
+```{r}
+trn %>%
+  ggplot() +
+  geom_density(aes(target), fill = herm, alpha = .8) +
+  labs(
+    title = "Target Distribution"
+  )
+```
+
+
+Hmmm...ok. The bimodal distribution tells me there might be two different subpopulations here that are combined. Something like cluster analysis or latent profile analysis could be a useful tool later on to help disaggregate potential groups within the target variable (although the other variables may already do this).
+
+
+# Explore Categorical Variables
+
+Next, I'll check for the number of unique values in the categorical (`cat`) columns.
+
+```{r}
+trn %>%
+  select(starts_with("cat")) %>%
+  summarize(across(everything(), n_distinct))
+```
+
+
+Ok -- that's not too bad. Our 300k row dataset has 10 categorical columns, and the most unique values any one of those variables has is 15. Let's plot this to get a feel for the distributions
+
+```{r}
+trn %>%
+  select(starts_with("cat")) %>%
+  pivot_longer(cols = everything(),
+               names_to = "key",
+               values_to = "val") %>%
+  count(key, val) %>%
+  ggplot(aes(x = n, y = reorder_within(val, n, key))) +
+  geom_col(aes(fill = val)) +
+  facet_wrap(vars(key), scales = "free") +
+  scale_y_reordered() +
+  labs(
+    title = "# of Categorical Column Entries",
+    y = NULL,
+    x = "Count"
+  ) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+
+
+We see a lot of different patterns here. For some variables (e.g. cat0, cat4, cat6, etc), the vast majority of observations have the same value. This tells me that these variables likely won't be terribly useful in any analysis. For other variables (e.g. cat1, cat3, cat8), we see less sparsity, and so there's probably more useful information in those columns as far as modeling goes.
+
+Another thing we can do with this same information is see how these column values map onto the `target` response.
+RETURN HERE -- DO AS A RIDGELINE
+
+```{r}
+trn %>%
+  select(matches("cat|target|id")) %>%
+  pivot_longer(cols = -c("id", "target"),
+               names_to = "key",
+               values_to = "val") %>%
+  ggplot(aes(x = target, y = key)) +
+  geom_density_ridges(aes(fill = val), alpha = .5)
+  
+  
+  ggplot(aes(x = n, y = reorder_within(val, n, key))) +
+  geom_col(aes(fill = val)) +
+  facet_wrap(vars(key), scales = "free") +
+  scale_y_reordered() +
+  labs(
+    title = "# of Categorical Column Entries",
+    y = NULL,
+    x = "Count"
+  ) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+
+This is a little bit hard to distinguish, but that's ok I think. One thing to keep in mind when viewing this is that these distributions are going to be most useful for variables that have a balanced-ish number of responses for each value. These are columns like  `cat1`, `cat3`, `cat5`, and `cat8`. The variables with very little variance might have crazy-shaped distributions (see e.g. `cat7`), but that's just because the responses are so sparse. Bearing that in mind, there's really not that much of not going on here.
+
+#  Exploring Continuous Variables
+
+Now let's take a look at the continuous variables.
+
+```{r}
+trn %>%
+  select(starts_with("cont")) %>%
+  pivot_longer(cols = everything(),
+               names_to = "key",
+               values_to = "val") %>%
+  ggplot(aes(x = val, y = key)) +
+  geom_density_ridges(aes(fill = key), alpha = .6) +
+  labs(
+    title = "Continuous Variable Distributions",
+    y = NULL,
+    x = "Value"
+  ) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+
+So, these look wacky. I don't really know how to interpret them beyond that. My guess is that there are interactions between each of these and some of the categorical variables (or maybe other continuous variables) that cause them to be distributed this way.
+
+One potentially useful approach here will be to look at the bivariate relationship between each of these and the target variable. I'd typically do this with a scatterplot, but there are so many observations here that a scatterplot would be overplotted and slow to render. Instead, I'll use a smoother to visualize the relationship without plotting all of the individual points.
+
+```{r}
+trn %>%
+  select(matches("cont|id|targ")) %>%
+  pivot_longer(cols = -c("id", "target"),
+               names_to = "key",
+               values_to = "val") %>%
+  ggplot(aes(x = val, y = target)) +
+  geom_smooth(method = "gam") +
+  facet_wrap(vars(key)) +
+  labs(
+    title = "Relationship btwn Target and Continuous Vars"
+  )
+```
+
+
+We don't see terribly strong relationships here, and I don't want to put much weight on the tail ends of these lines, since the x values are sparse there (for the most part), but even this gives us useful information to work from. I think PCA is going to be a useful approach, since I don't see any strong bivariate relationships here between any individual predictors and the target variable.
+
+A next step would be to check out the correlations between the predictors.  RESUME HERE.
