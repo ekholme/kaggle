@@ -1,7 +1,7 @@
 ---
 title: "February Tabular Playground EDA"
 author: "EE"
-date: "2/6/2021"
+date: "2/7/2021"
 output: 
   html_document:
     toc: true
@@ -16,7 +16,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(harrypotter) #for colors
 library(tidytext) #for reorder_within function
-library(ggridges)
+library(ggridges) #for ridgeline plot
+library(corrr) #helpers for correlations
+library(gt) #tables
 
 herm <- harrypotter::hp(n = 1, option = "HermioneGranger")
 
@@ -102,7 +104,7 @@ trn %>%
 We see a lot of different patterns here. For some variables (e.g. cat0, cat4, cat6, etc), the vast majority of observations have the same value. This tells me that these variables likely won't be terribly useful in any analysis. For other variables (e.g. cat1, cat3, cat8), we see less sparsity, and so there's probably more useful information in those columns as far as modeling goes.
 
 Another thing we can do with this same information is see how these column values map onto the `target` response.
-RETURN HERE -- DO AS A RIDGELINE
+
 
 ```{r}
 trn %>%
@@ -113,19 +115,6 @@ trn %>%
   ggplot(aes(x = target, y = key)) +
   geom_density_ridges(aes(fill = val), alpha = .5)
   
-  
-  ggplot(aes(x = n, y = reorder_within(val, n, key))) +
-  geom_col(aes(fill = val)) +
-  facet_wrap(vars(key), scales = "free") +
-  scale_y_reordered() +
-  labs(
-    title = "# of Categorical Column Entries",
-    y = NULL,
-    x = "Count"
-  ) +
-  theme(
-    legend.position = "none"
-  )
 ```
 
 
@@ -175,4 +164,23 @@ trn %>%
 
 We don't see terribly strong relationships here, and I don't want to put much weight on the tail ends of these lines, since the x values are sparse there (for the most part), but even this gives us useful information to work from. I think PCA is going to be a useful approach, since I don't see any strong bivariate relationships here between any individual predictors and the target variable.
 
-A next step would be to check out the correlations between the predictors.  RESUME HERE.
+A next step would be to check out the correlations between the continuous predictors
+
+```{r}
+trn %>%
+  select(starts_with("cont")) %>%
+  correlate() %>%
+  shave() %>%
+  fashion() %>%
+  gt() %>%
+  tab_header(
+    title = "Continuous Variable Correlations"
+  )
+```
+
+
+Some variables have moderate correlations with one another (e.g. cont0 and cont5, cont9 and cont5), whereas others are pretty much not correlated with anything (e.g. cont1, cont4, cont13).
+
+# To Be Continued
+
+I'll likely continue exploring a bit more once I get a baseline submission in and playing around with some models.
