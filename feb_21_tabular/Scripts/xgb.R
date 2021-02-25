@@ -5,10 +5,63 @@
 library(tidyverse)
 library(tidymodels)
 library(finetune)
+library(glue)
 
 trn <- vroom::vroom(here::here("feb_21_tabular/Data/train.csv"))
 test <- vroom::vroom(here::here("feb_21_tabular/Data/test.csv"))
 
+
+#target mean encoder
+encode_means <- function(df, cat_var, targ, na.rm = TRUE) {
+  
+  tmp <- df %>%
+    summarize(
+      all_mu = mean(.data[[targ]], na.rm = na.rm),
+      all_var = var(.data[[targ]], na.rm = na.rm)
+    )
+  
+  ret <- df %>%
+    group_by(.data[[cat_var]]) %>%
+    summarize(
+      grp_mu = mean(.data[[targ]], na.rm = na.rm),
+      grp_var = var(.data[[targ]], na.rm = na.rm)
+    ) %>%
+    ungroup() %>%
+    mutate(
+      all_mu = tmp$all_mu,
+      all_var = tmp$all_var,
+      b = grp_var/(grp_var + all_var),
+      wmean = (1-b)*grp_mu + b*all_mu 
+    ) %>%
+    select(.data[[cat_var]], 
+           wmean)
+  
+  names(ret) <- (c(cat_var, paste0(cat_var, "_wmean")))
+  
+  return(ret)
+  
+}
+
+# PreProcessing -----------------------------------------------------------
+
+cats <- str_subset(names(trn), "cat")
+
+trn %>%
+  encode_means(cat_var = "cat0", targ = "target") %>%
+  View()
+
+match_tbls <- map(cats, ~encode_means(df = trn, cat_var = .x, targ = "target"))g
+
+xx <- trn %>%
+  left_join(match_tbls[[1]], by = "cat0") %>%
+  glimpse()
+
+##next step -- write a map that will join and keep only the necessary cols
+map_encode <- function(tbls) {
+  
+  by <- names(tbls)[[1]]
+  
+}
 
 # Modeling ----------------------------------------------------------------
 
