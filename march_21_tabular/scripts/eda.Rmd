@@ -1,0 +1,153 @@
+---
+title: "March Tabular Playground EDA"
+author: "EE"
+date: "3/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(janitor)
+library(tidytext)
+library(ggridges)
+library(corrr)
+library(gt)
+
+trn <- vroom::vroom(here::here("march_21_tabular/data/train.csv"))
+tst <- vroom::vroom(here::here("march_21_tabular/data/test.csv"))
+
+theme_set(theme_minimal())
+```
+
+# Glancing at Data
+
+```{r}
+glimpse(trn)
+```
+
+# Check for Missingness
+
+```{r}
+trn %>%
+  summarize(across(everything(), ~sum(is.na(.x))))
+```
+
+
+Nothing missing!
+
+# Check Outcome Frequency
+
+```{r}
+prop.table(table(trn$target))
+```
+
+Ok, so, about 26% of the responses are "yes"
+
+# Exploring Categorical Variables
+
+```{r}
+trn %>%
+  select(starts_with("cat")) %>%
+  summarize(across(everything(), n_distinct))
+```
+
+Cat10 has 299 unique values. Cat5 has 84. Cat8 and cat7 have 61 and 51. The rest all have fewer than 20.
+
+
+Let's look at the number of entries per value. I'll only look at the top 5 within each variable
+
+```{r}
+trn %>%
+  select(starts_with("cat")) %>%
+  pivot_longer(cols = everything(),
+               names_to = "key",
+               values_to = "val") %>%
+  count(key, val) %>%
+  group_by(key) %>%
+  slice_max(order_by = n, n = 5) %>%
+  ungroup() %>%
+  ggplot(aes(x = n, y = reorder_within(val, n, key))) +
+  geom_col(aes(fill = val)) +
+  facet_wrap(vars(key), scales = "free") +
+  scale_y_reordered() +
+  labs(
+    title = "# of Categorical Column Entries",
+    y = NULL,
+    x = "Count"
+  ) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+
+Cat5 is incredibly unbalanced. Cat10 not so much (at least through the first 5 entries). Cat7 maybe a little bit; Cat8 not too bad. Some others are obviously very imbalanced as well. Will want to do a step_other here for sure.
+
+```{r}
+trn %>%
+  select(matches("cat|target")) %>%
+  pivot_longer(cols = starts_with("cat"),
+               names_to = "key",
+               values_to = "val") %>%
+  count(key, val, target) %>%
+  add_count(key, val, wt = n, name = "grp_n") %>%
+  filter(target == 1,
+         n > 15000) %>%
+  mutate(perc = n/grp_n) %>%
+  arrange(desc(perc))
+```
+
+
+This will give us the rate of "yes" responses for any categories that have at least 15k observations. Recall that the unconditional mean of target is 26%, so anything considerably different than that is useful info here.
+
+# Exploring Continuous Variables
+
+```{r}
+trn %>%
+  select(starts_with("cont")) %>%
+  pivot_longer(cols = everything(),
+               names_to = "key",
+               values_to = "val") %>%
+  ggplot(aes(x = val, y = key)) +
+  geom_density_ridges(aes(fill = key), alpha = .6) +
+  labs(
+    title = "Continuous Variable Distributions",
+    y = NULL,
+    x = "Value"
+  ) +
+  theme(
+    legend.position = "none"
+  )
+```
+
+Everything is on the same scale, which is helpful. We have some pretty wonky distributions, though, which makes me think that there are interactions with the categorical variables. Or potentially some latent classes here -- LPA might be helpful?
+
+```{r}
+trn %>%
+  select(matches("cont|id|targ")) %>%
+  pivot_longer(cols = -c("id", "target"),
+               names_to = "key",
+               values_to = "val") %>%
+  mutate(target = as_factor(target)) %>%
+  ggplot() +
+  geom_density_ridges(aes(x = val, y = key, fill = target), alpha = .6)
+  
+
+```
+
+There are definitely some differences here, but nothing super apparent (other than maybe some stuff in the right tails of cont5 and cont4).
+
+```{r}
+trn %>%
+  select(starts_with("cont")) %>%
+  correlate() %>%
+  shave() %>%
+  fashion() %>%
+  gt() %>%
+  tab_header(
+    title = "Continuous Variable Correlations"
+  )
+```
+
