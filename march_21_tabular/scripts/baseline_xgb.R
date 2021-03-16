@@ -49,3 +49,13 @@ xgb_res <- tune_race_anova(
 )
 
 
+# Predict -----------------------------------------------------------------
+
+params <- select_best(xgb_res, metric = "roc_auc")
+
+#finalizing workflow
+fin_wf <- trn_wf %>%
+  finalize_workflow(params)
+
+#predicting
+preds <- predict(fin_wf %>% fit(trn), tst, type = "prob")
