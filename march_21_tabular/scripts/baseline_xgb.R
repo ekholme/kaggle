@@ -59,3 +59,13 @@ fin_wf <- trn_wf %>%
 
 #predicting
 preds <- predict(fin_wf %>% fit(trn), tst, type = "prob")
+
+
+# Make Submission ---------------------------------------------------------
+
+sub <- tibble(
+  id = tst$id,
+  target = preds$.pred_1
+)
+
+write_csv(sub, here::here("march_21_tabular/submissions/baseline_xgb.csv"))

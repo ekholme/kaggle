@@ -12,8 +12,6 @@ trn <- vroom::vroom(here::here("march_21_tabular/data/train.csv")) %>%
   mutate(target = as_factor(target))
 tst <- vroom::vroom(here::here("march_21_tabular/data/test.csv"))
 
-theme_set(theme_minimal())
-
 
 #splitting training from kaggle into a trn and a val set
 #trn_split <- initial_split(trn, prop = 4/5, strata = target)
@@ -30,6 +28,8 @@ theme_set(theme_minimal())
 set.seed(0408)
 mod_rec <- recipe(target ~ ., data = trn) %>%
   update_role(id, new_role = "id_var") %>%
+  step_pca(all_numeric(), threshold = .95) %>%
+  step_ns(all_numeric(), deg_free = 3) %>%
   step_other(starts_with("cat"), threshold = .05) %>%
   step_nzv(all_predictors()) %>%
   prep()
@@ -43,9 +43,11 @@ folds <- vfold_cv(trn_prepped, v = 5)
 # Model Spec --------------------------------------------------------------
 
 cat_spec <- boost_tree(
-  trees = 500,
+  trees = 2000,
+  tree_depth = 2,
   min_n = tune(),
-  tree_depth = tune()
+  mtry = tune(),
+  learn_rate = tune()
 ) %>%
   set_mode("classification") %>%
   set_engine("catboost", nthread = 6)
@@ -58,10 +60,11 @@ wf <- workflow() %>%
 #creating parameters list
 params <- parameters(
   min_n(),
-  tree_depth()
+  finalize(mtry(), trn_prepped),
+  learn_rate()
 )
 
-params_grid <- grid_max_entropy(params, size = 10)
+params_grid <- grid_max_entropy(params, size = 20)
 
 
 # Tuning Model ------------------------------------------------------------
@@ -69,7 +72,7 @@ params_grid <- grid_max_entropy(params, size = 10)
 set.seed(0408)
 #doParallel::registerDoParallel()
 
-cat_res <- tune_grid(
+cat_res <- tune_race_anova(
   wf,
   resamples = folds,
   grid = params_grid
@@ -99,4 +102,4 @@ sub <- tibble(
   target = preds$.pred_1
 )
 
-write_csv(sub, here::here("march_21_tabular/submissions/baseline_catboost.csv"))
+write_csv(sub, here::here("march_21_tabular/submissions/catboost_pca.csv"))
