@@ -8,9 +8,10 @@ library(tidymodels)
 library(treesnip)
 library(finetune)
 
-trn <- vroom::vroom(here::here("march_21_tabular/data/train.csv")) %>%
+trn <- vroom::vroom(here::here("march_21_tabular/data/trn_lpa.csv")) %>%
+  rename(target = ...33) %>%
   mutate(target = as_factor(target))
-tst <- vroom::vroom(here::here("march_21_tabular/data/test.csv"))
+tst <- vroom::vroom(here::here("march_21_tabular/data/tst_lpa.csv"))
 
 
 #splitting training from kaggle into a trn and a val set
@@ -28,9 +29,8 @@ tst <- vroom::vroom(here::here("march_21_tabular/data/test.csv"))
 set.seed(0408)
 mod_rec <- recipe(target ~ ., data = trn) %>%
   update_role(id, new_role = "id_var") %>%
-  step_pca(all_numeric(), threshold = .95) %>%
-  step_ns(all_numeric(), deg_free = 3) %>%
-  step_other(starts_with("cat"), threshold = .05) %>%
+  step_string2factor(all_nominal(), -all_outcomes()) %>%
+  step_other(starts_with("cat"), threshold = .1) %>% 
   step_nzv(all_predictors()) %>%
   prep()
 
@@ -43,14 +43,14 @@ folds <- vfold_cv(trn_prepped, v = 5)
 # Model Spec --------------------------------------------------------------
 
 cat_spec <- boost_tree(
-  trees = 2000,
+  trees = 2500,
   tree_depth = 2,
   min_n = tune(),
   mtry = tune(),
   learn_rate = tune()
 ) %>%
   set_mode("classification") %>%
-  set_engine("catboost", nthread = 6)
+  set_engine("catboost")
 
 #creating workflow
 wf <- workflow() %>%
@@ -64,13 +64,14 @@ params <- parameters(
   learn_rate()
 )
 
-params_grid <- grid_max_entropy(params, size = 20)
+set.seed(0408)
+params_grid <- grid_max_entropy(params, size = 10)
 
 
 # Tuning Model ------------------------------------------------------------
 
-set.seed(0408)
-#doParallel::registerDoParallel()
+set.seed(0409)
+#doParallel::registerDoParallel(8)
 
 cat_res <- tune_race_anova(
   wf,
@@ -102,4 +103,11 @@ sub <- tibble(
   target = preds$.pred_1
 )
 
-write_csv(sub, here::here("march_21_tabular/submissions/catboost_pca.csv"))
+write_csv(sub, here::here("march_21_tabular/submissions/catboost_lpa.csv"))
+
+## next step -- try kmeans cluster or lpa with continuous variables; try boxcox on continuous preds; try smote resampling for class imbalance?
+## and maybe try frequency encoding categorical features?
+
+##and start stacking models
+
+# i also need to start working with the validation set to see where I'm getting the worst predictions
