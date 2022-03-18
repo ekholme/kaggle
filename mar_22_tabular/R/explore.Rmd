@@ -1,0 +1,115 @@
+---
+title: "EDA"
+author: "EE"
+---
+    
+# EDA of March 2022 Tabular Playground Data
+
+```{r}
+library(tidyverse)
+library(eemisc)
+library(lubridate)
+library(hms)
+
+trn <- read_csv(here::here("mar_22_tabular/data/train.csv"))
+
+theme_set(theme_ee(accent_color = "gray80"))
+```
+
+
+```{r}
+dim(trn)
+```
+
+
+```{r}
+head(trn)
+```
+
+# Missingness
+
+```{r}
+summarize(trn, across(everything(), ~ sum(is.na(.x))/length(.x)))
+```
+
+No missing data across any of our cols
+
+# Target: Congestion
+
+```{r}
+ggplot(trn, aes(x = congestion)) +
+    geom_histogram()
+```
+
+Sort of normally distributed, with some spikes at certain values. Like the directions for the competition say, this has been scaled so measurements are 0-100.
+
+```{r}
+c(mean(trn$congestion), sd(trn$congestion))
+```
+
+We can also see the number of unique values:
+```{r}
+length(unique(trn$congestion))
+```
+
+So, every value from 0-100 is represented, which is useful to know when predicting values.
+
+# Continuous Predictors (but not time)
+
+```{r}
+summary(cbind(trn$x, trn$y))
+```
+
+So these really don't seem like continuous predictors? I think they're more like ordinal values?
+
+```{r}
+trn %>%
+    select(x, y) %>%
+    pivot_longer(cols = c("x", "y"), names_to = "key", values_to = "val") %>%
+    count(key, val) %>%
+    ggplot(aes(x = n, y = as.character(val))) +
+    geom_col() +
+    facet_wrap(~key)
+```
+
+Let's see if there's any difference in the distriubtion of the outcome by x and y
+
+```{r}
+trn %>%
+    mutate(across(c("x", "y"), as.character)) %>%
+    ggplot(aes(x = congestion)) +
+    geom_histogram() +
+    facet_grid(rows = vars(x), cols = vars(y))
+```
+
+So, there are some differences here.
+
+# Direction Predictors 
+
+```{r}
+trn %>%
+    count(direction, sort = TRUE)
+```
+
+And let's do the same thing above & look at distribution differences between these:
+
+```{r}
+trn %>%
+    ggplot(aes(x = congestion)) +
+    geom_histogram() +
+    facet_wrap(vars(direction))
+```
+
+# Date Time Predictors
+
+So, this is going to be the money predictor here.
+```{r}
+trn %>%
+    mutate(
+        tm = as_hms(time),
+        wkday = wday(time, label = TRUE),
+        mo = month(time, label = TRUE)
+    ) %>%
+    glimpse()
+    
+```
