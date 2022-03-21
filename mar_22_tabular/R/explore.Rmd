@@ -104,12 +104,60 @@ trn %>%
 
 So, this is going to be the money predictor here.
 ```{r}
-trn %>%
+trn <- trn %>%
     mutate(
         tm = as_hms(time),
         wkday = wday(time, label = TRUE),
-        mo = month(time, label = TRUE)
-    ) %>%
-    glimpse()
+        mo = month(time, label = TRUE),
+        wkend = if_else(wkday %in% c("Sat", "Sun"), TRUE, FALSE)
+    )
     
 ```
+
+To start -- let's look at time by congestion, and let's facet by whether it's a weekend or weekday
+
+```{r}
+trn %>%
+    ggplot(aes(x = tm, y = congestion)) +
+    geom_smooth() +
+    facet_wrap(vars(wkend))
+```
+
+Probably obviously -- the time of day matters for congestion, and there's an interaction between time of day and whether a day is a weekend or not.
+
+We can get more granular and look at differences by day of week, although my suspicion is that weekdays will be mostly the same:
+
+```{r}
+trn %>% ggplot(aes(x = tm, y = congestion)) +
+    geom_smooth() +
+    facet_wrap(vars(wkday))
+```
+
+Right. So, weekdays are pretty much the same, but there does seem to be a difference between Saturdays and Sundays, which we'll probably want to represent. The likely approach here is to have 3 binned days: weekday, Saturday, Sunday.
+
+Let's also do the same plot as above but instead of faceting by weekday, let's facet by month. We'll lose some granularity in terms of day, but we might be able to see if months differ:
+
+```{r}
+trn %>%
+    ggplot(aes(x = tm, y = congestion)) +
+    geom_smooth() +
+    facet_wrap(vars(mo))
+```
+
+Not seeing too much of a difference here by month. Maybe Sept looks slightly different.
+
+Let's see how strong the correlation is between lagged predictors
+
+```{r}
+trn <- trn %>%
+    mutate(lag1 = lag(congestion), lag2 = lag(congestion, 2), lag3 = lag(congestion, 3))
+
+trn[, c(6, 11:13)] %>%
+    cor(use = "pairwise.complete.obs")
+#I would have expected this to be stronger
+```
+
+## Other Ideas
+
+- include a few lags to get the previous measurement. The logic here is that congestion likely doesn't clear immediately, and there should be a strong relationship between lagged congestion and current congestion. This does complicate predicting, though.
+- try a `prophet` model to predict  using timeseries data
