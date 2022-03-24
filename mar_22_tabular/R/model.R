@@ -1,5 +1,6 @@
 library(tidyverse)
 library(tidymodels)
+library(mgcv)
 
 trn <- read_csv(here::here("mar_22_tabular/data/train.csv"))
 tst <- read_csv(here::here("mar_22_tabular/data/test.csv"))
@@ -38,11 +39,11 @@ trn <- trn %>%
 tst <- tst %>%
     transform_feats()
 
-# Basic Linear Model ----------------------------------
+# GAM -------------------------------------------------
 
-mod <- lm(congestion ~ ., data = trn)
+mod <- gam(congestion ~ s(as.numeric(tm), k = 10) + x + y + direction + wkday + mo, data = trn, na.action = "na.omit")
 
-preds <- predict(mod, newdata = tst)
+preds <- as.numeric(predict(mod, newdata = tst))
 
 # Write Sub -------------------------------------------
 
@@ -51,4 +52,4 @@ sub <- tibble(
     congestion = preds
 )
 
-write_csv(sub, file = here::here("submissions/lm_sub.csv"))
+write_csv(sub, file = here::here("mar_22_tabular/submissions/gam_sub.csv"))
