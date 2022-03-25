@@ -1,5 +1,7 @@
 library(tidyverse)
 library(tidymodels)
+library(hms)
+library(lubridate)
 library(mgcv)
 
 trn <- read_csv(here::here("mar_22_tabular/data/train.csv"))
@@ -9,7 +11,7 @@ tst <- read_csv(here::here("mar_22_tabular/data/test.csv"))
 extract_dttm <- function(x) {
     x %>%
         mutate(
-            tm = as_hms(time),
+            tm = as.numeric(as_hms(time)),
             wkday = as.character(wday(time, label = TRUE)),
             mo = month(time, label = TRUE),
             wkday = if_else(
@@ -41,7 +43,9 @@ tst <- tst %>%
 
 # GAM -------------------------------------------------
 
-mod <- gam(congestion ~ s(as.numeric(tm), k = 10) + x + y + direction + wkday + mo, data = trn, na.action = "na.omit")
+mod <- lm(congestion ~ 1 + splines::ns(tm, df = 10) + x + y + direction + wkday + mo, data = trn)
+
+#mod <- gam(congestion ~ s(as.numeric(tm), k = 10) + x + y + direction + wkday + mo, data = trn, na.action = "na.omit")
 
 preds <- as.numeric(predict(mod, newdata = tst))
 
@@ -52,4 +56,4 @@ sub <- tibble(
     congestion = preds
 )
 
-write_csv(sub, file = here::here("mar_22_tabular/submissions/gam_sub.csv"))
+write_csv(sub, file = here::here("mar_22_tabular/submissions/spline_sub.csv"))
