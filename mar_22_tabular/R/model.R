@@ -3,6 +3,8 @@ library(tidymodels)
 library(hms)
 library(lubridate)
 library(mgcv)
+library(xgboost)
+library(finetune)
 
 trn <- read_csv(here::here("mar_22_tabular/data/train.csv"))
 tst <- read_csv(here::here("mar_22_tabular/data/test.csv"))
@@ -51,13 +53,7 @@ row_ids <- tst$row_id
 tst <- tst %>%
     transform_feats(rmv = rmv)
 
-# GAM -------------------------------------------------
-
-mod <- lm(congestion ~ 1 + splines::ns(tm, df = 10) + x + y + direction + wkday + mo, data = trn)
-
-# mod <- gam(congestion ~ s(as.numeric(tm), k = 10) + x + y + direction + wkday + mo, data = trn, na.action = "na.omit")
-
-preds <- as.numeric(predict(mod, newdata = tst))
+trn_folds <- vfold_cv(trn, v = 5)
 
 # Recipe ----------------------------------------------
 
@@ -66,24 +62,59 @@ rec <- recipe(congestion ~ ., data = trn) %>%
     step_ns(tm, deg_free = 10) %>%
     step_interact(terms = ~starts_with("tm"):starts_with("wkday"))
 
-pr <- rec %>%
-    prep() %>%
-    bake(new_data = NULL)
+# pr <- rec %>%
+#     prep() %>%
+#     bake(new_data = NULL)
 
 # Model Spec ------------------------------------------
 
-glm_spec <- linear_reg(penalty = .01, mixture = 1) %>% # will want to tune these later
-    set_engine("glmnet")
+xgb_spec <- boost_tree(
+    trees = 2000,
+    tree_depth = 2,
+    min_n = tune(),
+    loss_reduction = tune(),
+    sample_size = tune(),
+    mtry = tune(),
+    learn_rate = tune()
+) %>%
+    set_engine("xgboost") %>%
+        set_mode("regression")
+    
+# Parameter grid -------------------------------------
+
+xgb_grid <- grid_latin_hypercube(
+    min_n(),
+    loss_reduction(),
+    sample_size = sample_prop(),
+    finalize(mtry(), trn),
+    learn_rate(),
+    size = 10
+)
+
+params <- parameters(list(
+    min_n = min_n(),
+    loss_reduction = loss_reduction(),
+    sample_size = sample_prop(),
+    mtry = finalize(mtry(), trn),
+    learn_rate = learn_rate()#,
+    #trees = 2000,
+    #tree_depth = 2
+))
 
 # Workflow --------------------------------------------
 
 wf <- workflow() %>%
     add_recipe(rec) %>%
-    add_model(glm_spec)
+    add_model(xgb_spec)
 
 # Fit -------------------------------------------------
 
-wf_fit <- fit(wf, data = trn)
+xgb_res <- tune_sim_anneal(
+    wf,
+    resamples = trn_folds,
+    iter = 10,
+    param_info = params
+)
 
 # Predict ---------------------------------------------
 
