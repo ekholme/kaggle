@@ -116,9 +116,20 @@ xgb_res <- tune_sim_anneal(
     param_info = params
 )
 
+# looking at best versions
+best_params <- select_best(xgb_res, "rmse")
+
+#finalize fit
+final_xgb <- finalize_workflow(
+    wf,
+    best_params
+)
+
+final_xgb_fit <- fit(final_xgb, data = trn)
+
 # Predict ---------------------------------------------
 
-preds <- simplify(predict(wf_fit, tst))
+preds <- simplify(predict(final_xgb_fit, tst))
 
 # Write Sub -------------------------------------------
 
@@ -127,4 +138,4 @@ sub <- tibble(
     congestion = preds
 )
 
-write_csv(sub, file = here::here("mar_22_tabular/submissions/spline_interact_sub.csv"))
+write_csv(sub, file = here::here("mar_22_tabular/submissions/xgb_preds.csv"))
