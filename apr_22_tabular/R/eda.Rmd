@@ -1,0 +1,86 @@
+# April 2022 Tabular Playground EDA 
+
+
+```{r}
+ library(tidyverse)
+ library(janitor)
+ library(eemisc)
+
+ trn <- read_csv(here::here("apr_22_tabular/data/train.csv"))
+ trn_labs <- read_csv(here::here("apr_22_tabular/data/train_labels.csv"))
+ tst <- read_csv(here::here("apr_22_tabular/data/test.csv"))
+
+ ## joining subject into trn_labs
+ trn_labs <- trn_labs %>%
+     left_join(trn %>% distinct(subject, sequence))
+
+ theme_set(theme_ee(accent_color = "grey80"))
+```
+
+ok, so, steps within sequences within subjects. Labels are associated with each sequence, though, not each step.
+
+# Target
+
+```{r}
+table(trn_labs$state)
+```
+
+So these states are pretty much equally likely, which is actually good -- we don't have to deal with class imbalance.
+
+# Participants & Sequences
+
+How many participants do we have?
+
+```{r}
+length(unique(trn$subject))
+```
+
+And how many unique sequences?
+
+```{r}
+length(unique(trn$sequence))
+```
+
+Let's look to see if sequences are evenly distributed across subjects:
+
+```{r}
+trn %>%
+    distinct(subject, sequence) %>%
+    count(subject) %>%
+    ggplot(aes(x = n)) +
+    geom_histogram()
+```
+
+Right -- so our distribution here is slightly skewed. Some subjects account for a lot of sequences, whereas others only account for a few. This will make nesting obs difficult to some extent, although there are def ways to handle it.
+
+We saw previously that `state` is pretty balanced -- we saw about as many 0s as 1s across all sequences. But let's see if participants differ in their average states
+
+```{r}
+trn_labs %>%
+    group_by(subject) %>%
+    summarize(state = mean(state)) %>%
+    ggplot(aes(x = state)) +
+    geom_histogram()
+```
+
+
+Ok, so, yeah -- people are differing quite a bit in their average state. There's a big spike at 0 -- my assumption here is that people with relatively few trials tend to score 0, but let's look at that
+
+```{r}
+trn_labs %>%
+    group_by(subject) %>%
+    summarize(state = mean(state), n = n()) %>%
+    select(-subject) %>%
+    cor()
+```
+
+This is useful -- there's a pretty good sized correlation between number of trials (within a participant) and average state.
+
+## RESUME HERE.
+
+Thoughts:
+
+- PCA on sensors might be useful
+- LPA within each sequence on the PCs?
+- Could also do mean/var of each sensor within each sequence
+- note that n_trials is correlated with avg subject state at .68
