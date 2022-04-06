@@ -172,24 +172,30 @@ Right, so still not a whole lot to go on here.
 ```{r}
 #function to compute rci
 std_err <- function(x) {
-    sd(x) / sqrt(x)
+    sd(x) / sqrt(length(x))
 }
 
+#sort of a bastardized reliable change, but w/e
 rci <- function(x1, x2) {
     se <- std_err(x1)
 
     sdiff <- sqrt(2 * se^2)
 
-    (x1 - x2) / sdiff
+    v <- (x1 - x2) / sdiff
+
+    abs(v) > 1.96
 }
 ```
 
 ```{r}
-trn2 <- trn %>%
+rc_summed <- trn %>%
     pivot_longer(cols = starts_with("sensor"), names_to = "sensor", values_to = "val") %>%
     group_by(sequence, sensor) %>%
     arrange(sequence, sensor, step) %>%
-    mutate(lag_val = lag(val), rci = rci(val, lag_val))
+    mutate(lag_val = lag(val), rci = rci(val, lag_val)) %>%
+    summarize(prop_rc = sum(rci, na.rm = TRUE) / 59) %>%
+    ungroup() %>%
+    pivot_wider(names_from = sensor, values_from = prop_rc, names_glue = "{sensor}_prop_rc")
 ```
 
 Thoughts:
