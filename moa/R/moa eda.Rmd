@@ -1,0 +1,309 @@
+---
+title: "MoA EDA"
+author: "EE"
+date: "9/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(janitor)
+library(eemisc)
+library(corrr)
+library(tidymodels)
+
+theme_set(theme_ee())
+
+herm <- harrypotter::hp(n = 1, option = "HermioneGranger")
+
+trn_targ <- vroom::vroom(here::here("moa/Data/train_targets_scored.csv"))
+
+trn <- vroom::vroom(here::here("moa/Data/train_features.csv"))
+```
+
+## Overview
+
+The point of this competition is to predict, for each sample, the probability that the sample has a positive response for each Mechanism of Action (MoA). There are 207 MoAs to predict for in the train set (plus other non-scored MoAs that will be helpful in training a model). The training data predominantly has cell viability data and gene expression data, plus also a few other columns describing treatment conditions.
+
+## Target explore
+
+```{r}
+head(trn_targ)
+```
+
+The plot below visualizes the overall activation rate for each target column.
+
+```{r}
+trn_targ %>%
+  summarize(across(where(is.numeric), ~sum(.)/length(.))) %>%
+  pivot_longer(cols = everything(),
+               names_to = "targ",
+               values_to = "vals") %>%
+  ggplot(aes(vals)) +
+  geom_histogram(fill = herm)
+```
+
+Very few targets have higher than a 1% activation rate, meaning that there are fewer than 230 activations for the vast majority of targets across the entire 23k row dataset. Some seemingly have 0 activations, which I'll also want to take into account.
+
+Let's look at row sums to see how many observations have multiple target activations
+
+```{r}
+trn_targ %>%
+  pivot_longer(cols = -sig_id,
+               names_to = "rows",
+               values_to = "vals") %>%
+  count(sig_id, wt = vals) %>%
+  ggplot(aes(n)) +
+  geom_histogram(fill = herm)
+```
+
+Ok, so, most have either 0 or 1 activation, but a small number go up to 7. It seems like there's some application here of doing a poisson regression to predict the count of activations, then using any that are predicted to have >= 1 in a different model.
+
+## Training data
+
+```{r}
+head(trn)
+```
+
+One thing to keep in mind here is that I don't think any of the observations with `ctrl` as `cp_type` will have a target activation (if I'm reading that correctly). Let's take a look
+
+```{r}
+trn %>%
+  count(cp_type)
+```
+
+There are 1866 of these controls
+
+```{r}
+ctrls <- trn %>%
+  filter(cp_type == "ctl_vehicle") %>%
+  pull(sig_id)
+
+trn_targ %>%
+  filter((sig_id %in% ctrls)) %>%
+  pivot_longer(cols = -sig_id,
+               names_to = "rows",
+               values_to = "vals") %>%
+  summarize(sum = sum(vals))
+
+```
+
+This confirms that none of the controls have any activations, so I'll want to take that into account when building models.
+
+Moving along -- it looks like there are two main types of variables. Variables prefixed with "g" refer to gene expression data, whereas variables prefixed with "c" refer to cell viability data. At some point, I'll want to read more about these concepts and what the data actually represent.
+
+Beyond those, there are a few additional variables. cp_dose indicates whether the sample is treated with a high or low dose, and cp_time indicates the duration of the treatment. These will likely be most interesting as interaction effects.
+
+Let's take a quick look at the time and does counts.
+
+```{r}
+trn %>%
+  count(cp_time)
+```
+
+These are roughly equally distributed.
+
+```{r}
+trn %>%
+  count(cp_dose)
+```
+
+Also roughly equally distributed.
+
+There are so many g- and c- variables that it's not practical to plot each one here, so I'm just going to grab a random subset of these and look at some distributions
+
+```{r}
+set.seed(0408)
+rand_gs <- str_subset(names(trn), "^g") %>% sample(size = 20)
+set.seed(0408)
+rand_cs <- str_subset(names(trn), "^c-") %>% sample(size = 20)
+
+trn %>%
+  select(rand_gs) %>%
+  pivot_longer(cols = everything(),
+               names_to = "nms",
+               values_to = "vals") %>%
+  ggplot(aes(vals)) +
+  geom_histogram(fill = herm) +
+  facet_wrap(~nms) +
+  theme_minimal()
+
+```
+```{r}
+trn %>%
+  select(rand_cs) %>%
+  pivot_longer(cols = everything(),
+               names_to = "nms",
+               values_to = "vals") %>%
+  ggplot(aes(vals)) +
+  geom_histogram(fill = herm) +
+  facet_wrap(~nms) +
+  theme_minimal()
+```
+
+This is somewhat reassuring. All of the g variables and c variables seem to have the same distributions -- g's are fairly normally distributed (although maybe leptokurtic?), and c's are normally-ish distributed with a left skew (and also seemingly leptokurtic). There are a few g variables that have some outliers/skew, but generally there don't seem to be big differences in the distributions. I'll assume this is the case for all of them.
+
+### Missingness
+
+```{r}
+trn %>%
+  summarize_all(~sum(is.na(.))) %>%
+  pivot_longer(cols = everything(),
+               names_to = "nms",
+               values_to = "vals") %>%
+  filter(vals > 0)
+```
+
+Great -- no missing data!
+
+### Correlations
+
+With 870ish numeric variables, we're going to get a ton of correlation coefficients, so the best approach to me seems to be to visualize the distribution of these coefficients.
+
+```{r}
+trn_cors <- trn %>%
+  select(matches("^g|^c-")) %>%
+  cor() %>%
+  as_cordf() %>%
+  stretch()
+
+trn_cors %>%
+  ggplot(aes(r)) +
+  geom_histogram(fill = herm)
+```
+
+This isn't terribly surprising. Most correlations are around 0, but there are some that are pretty strong (> abs(.5)). Based on the sheer number of variables and these correlation patterns, it seems like this is a really good case for PCA.
+
+## PCA
+
+I'm going to do a PCA for the gene expression columns as well as for the cell viability columns because these seem like separate things to collapse. I could do them together, though. Anyway, let's start with the gene expression columns.
+
+```{r}
+pca_gs <- trn %>%
+  select(starts_with("g")) %>%
+  prcomp()
+```
+
+I'll start by looking at the % of variance explained by each component
+
+```{r}
+pca_gs %>%
+  tidy(matrix = "pcs") %>%
+  ggplot(aes(fct_lump_n(as_factor(PC), 10, w = percent, other_level = "10+"), percent)) +
+  geom_col(fill = herm) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Percent Variance Explained by PCs",
+    x = "PC",
+    y = "Variance Explained"
+  ) 
+```
+
+Component 1 explained about 30% of the variance here, and PC 2 explains about 5%. About 50% of the variance in the gene expression data is explained by PCs beyond PC 10, but remember that there will be ~750 of these contributing to that 50%.
+
+Next, let's look at some of the data in the PC coordinates. We have far too many gene expression variables to look at them all, so I'm going to use the same randomly-selected "g" variables earlier and just visualize those.
+
+```{r}
+pca_gs %>%
+  tidy(matrix = "rotation") %>%
+  filter(column %in% rand_gs,
+         PC %in% c(1, 2)) %>%
+  pivot_wider(names_from = "PC",
+              names_prefix = "PC",
+              values_from = "value") %>%
+  ggplot(aes(PC1, PC2)) +
+  geom_segment(xend = 0, yend = 0, arrow = arrow(type = "closed", ends = "first", length = unit(5, "pt"))) +
+  geom_text(aes(label = column, hjust = if_else(PC1 > 0, 0, 1)),
+            nudge = -.03,
+            size = 3)
+```
+
+This plot shows each of our 20 random gene expression columns decomposed into its coordinates in the first two principal components. I'm a little rusty on my PCA, but I think these PC values more or less represent the raw effect of each principal component on the variable (e.g., if g-568 were regressed on PC1 and PC2, the effect of PC1 would be approximately .06 and the effect of PC2 would be approximately .075)
+
+And let's finally take a look at which variables contribute most to PC1. For this, I'll just select the top 10 contributing variables (those with the highest absolute value).
+
+```{r}
+pca_gs %>%
+  tidy(matrix = "variables") %>%
+  filter(PC == 1) %>%
+  slice_max(order_by = abs(value), n = 10) %>%
+  ggplot(aes(x = fct_reorder(column, value, .desc = TRUE), y = value)) +
+  geom_col(fill = herm) +
+  labs(
+    x = NULL,
+    y = "PC1 value"
+  )
+```
+
+And then let's also do a PCA for the cell viability data and produce the same plots
+
+```{r}
+pca_cs <- trn %>%
+  select(starts_with("c-")) %>%
+  prcomp()
+```
+
+
+```{r}
+pca_cs %>%
+  tidy(matrix = "pcs") %>%
+  ggplot(aes(fct_lump_n(as_factor(PC), 10, w = percent, other_level = "10+"), percent)) +
+  geom_col(fill = herm) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Percent Variance Explained by PCs",
+    x = "PC",
+    y = "Variance Explained"
+  ) 
+```
+
+Wow. This is very different than the gene expression data. We see that the vast majority of the variance in the cell viability columns can be explained by a single component.
+
+```{r}
+pca_cs %>%
+  tidy(matrix = "rotation") %>%
+  filter(column %in% rand_cs,
+         PC %in% c(1, 2)) %>%
+  pivot_wider(names_from = "PC",
+              names_prefix = "PC",
+              values_from = "value") %>%
+  ggplot(aes(PC1, PC2)) +
+  geom_segment(xend = 0, yend = 0, arrow = arrow(type = "closed", ends = "first", length = unit(5, "pt"))) +
+  geom_text(aes(label = column, hjust = if_else(PC1 > 0, 0, 1)),
+            nudge = -.03,
+            size = 3) +
+  scale_x_continuous(limits = c(-.13, .01))
+```
+
+So, we see everything here is in the negative direction on PC1.
+
+```{r}
+pca_cs %>%
+  tidy(matrix = "variables") %>%
+  filter(PC == 1) %>%
+  slice_max(order_by = abs(value), n = 10) %>%
+  ggplot(aes(x = fct_reorder(column, value), y = value)) +
+  geom_col(fill = herm) +
+  labs(y = "PC1 value", x = NULL)
+```
+
+Right -- we essentially saw that these were negative in the previous plot, and we're seeing that again here.
+
+## Simple Baseline Model
+
+Finally, I'll just put together a very simple baseline model, which will just be the mean of each of the training targets.
+
+```{r}
+smpl_sub <- vroom::vroom(here::here("moa/Data/sample_submission.csv"))
+sub_len <- nrow(smpl_sub)
+
+trn_targ_mean <- trn_targ %>%
+  summarize(across(where(is.numeric), mean))
+
+sub <- trn_targ_mean %>%
+  slice(rep(1, each = sub_len)) %>%
+  bind_cols(smpl_sub[,1], .)
+```
+
