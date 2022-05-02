@@ -1,0 +1,45 @@
+---
+title: "May Tabular Playground"
+---
+
+```{r}
+library(tidyverse)
+library(eemisc)
+library(janitor)
+
+theme_set(theme_minimal())
+
+trn <- read_csv(here::here("may_22_tabular/data/train.csv"))
+tst <- read_csv(here::here("may_22_tabular/data/test.csv"))
+
+```
+
+# Exploring the Target
+
+```{r}
+mean(trn$target)
+```
+
+# Explore Predictors
+
+```{r}
+trn |>
+    select(where(is.numeric)) |>
+    summary()
+```
+
+ok, so this is actually some combination of integer data (maybe ordinal; e.g. `f_30`), numeric data (e.g. `f_23`), and binary data (e.g. `f_29`). It's also worth noting that som e of the numeric data is on very different scales, so we'll need to normalize the data.
+
+There's also that one string predictor that we'll want to play around with. Let's look at how many unique values there are for it -- I'm assuming a bunch:
+
+```{r}
+length(unique(trn$f_27))
+```
+
+And what proportion of the rows contain a unique value here?
+
+```{r}
+length(unique(trn$f_27))/nrow(trn)
+```
+
+Yikes. 82% are unique values. It might be worth thinking about this almost like PCA -- think of the first letter like the first component, the second letter like the seonc component, etc., and then use only like the first three characters in the string to put data into groups (could use more; 3 is just like a heuristic).
