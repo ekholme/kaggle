@@ -6,6 +6,8 @@ title: "May Tabular Playground"
 library(tidyverse)
 library(eemisc)
 library(janitor)
+library(corrplot)
+library(psych)
 
 theme_set(theme_minimal())
 
@@ -29,6 +31,32 @@ trn |>
 ```
 
 ok, so this is actually some combination of integer data (maybe ordinal; e.g. `f_30`), numeric data (e.g. `f_23`), and binary data (e.g. `f_29`). It's also worth noting that som e of the numeric data is on very different scales, so we'll need to normalize the data.
+
+Let's check out the correlations among the numeric variables next:
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    cor() |>
+    corrplot()
+```
+
+So the correlations here are mostly pretty small. `f_28` appears to be moderately correlated with a few other variables, but there's not really much going on here. And there really isn't much that's correlated with the target, either.
+
+Let's use `{skimr}` to get a better picture of the data here
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    skim()
+```
+
+The distributions are really helpful here. Basically, what we can see is:
+
+- `f_00` through `f_06` are normally distributed with mean 0 and sd 1;
+- `f_07` through `f_18` roughly follow a Poisson distribution or a negative-binomial distribution (maybe?). In other words, they appear to be counts.
+- `f_19` through `f_28` also appear to be normally distributed, although maybe slightly skewed or slightly off-center.
+- `f_29` and `f_30` are counts with few unique values. `f_29` is binary, and `f_30` has 3 values.
 
 There's also that one string predictor that we'll want to play around with. Let's look at how many unique values there are for it -- I'm assuming a bunch:
 
