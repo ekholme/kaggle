@@ -8,6 +8,7 @@ library(eemisc)
 library(janitor)
 library(corrplot)
 library(psych)
+library(skimr)
 
 theme_set(theme_minimal())
 
@@ -54,7 +55,7 @@ trn |>
 The distributions are really helpful here. Basically, what we can see is:
 
 - `f_00` through `f_06` are normally distributed with mean 0 and sd 1;
-- `f_07` through `f_18` roughly follow a Poisson distribution or a negative-binomial distribution (maybe?). In other words, they appear to be counts.
+- `f_07` through `f_18` roughly follow a Poisson distribution or a negative-binomial distribution (maybe?). In other words, they appear to be counts. So we'll want to transform this to make it more normal.
 - `f_19` through `f_28` also appear to be normally distributed, although maybe slightly skewed or slightly off-center.
 - `f_29` and `f_30` are counts with few unique values. `f_29` is binary, and `f_30` has 3 values.
 
@@ -71,3 +72,39 @@ length(unique(trn$f_27))/nrow(trn)
 ```
 
 Yikes. 82% are unique values. It might be worth thinking about this almost like PCA -- think of the first letter like the first component, the second letter like the seonc component, etc., and then use only like the first three characters in the string to put data into groups (could use more; 3 is just like a heuristic).
+
+
+Let's see that below
+```{r}
+trn |>
+    mutate(f_27_short = substring(f_27, 1, 3)) |>
+    count(f_27_short, sort = TRUE) |>
+    ggplot(aes(x = n)) +
+    geom_histogram()
+```
+
+This seems like an ok approach, but it might be better if we collapse some of the less frequent categories to make the group counts more balanced
+
+```{r}
+trn |>
+    mutate(f_27_short = fct_lump_min(substring(f_27, 1, 3), 20000)) |>
+    count(f_27_short) |>
+    ggplot(aes(x = n, y = fct_reorder(f_27_short, n))) +
+    geom_col()
+```
+
+So, this isn't completely balanced, but better than having some really tiny groups.
+
+A next step is probably splitting apart the actual letters here if we want to look at, like, interactions between first letter and second letter, etc. But it's not clear to me that that will be a helpful approach, so I'll save that for modeling.
+
+It's probably worth looking at outcomes by each of these groups, though
+
+```{r}
+trn |>
+    mutate(f_27_short = fct_lump_min(substring(f_27, 1, 3), 20000)) |>
+    count(f_27_short, target) |>
+    ggplot(aes(x = n, y = fct_reorder(f_27_short, n), fill = target)) +
+    geom_col()
+```
+
+Ok -- some of these groups have some action in terms of correlation with the target variable, particularly the "BEB" and "BAA". It also looks like "Other" has some ability to distinguish in our outcome, which is helpful since this is the largest group.
