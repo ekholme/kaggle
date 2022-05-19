@@ -54,4 +54,4 @@ sub <- tibble(
     target = preds$.pred_1
 )
 
-write_csv(sub, here::here("may_22_tabular/submissions/xgb_base.csv"))
+write_csv(sub, here::here("may_22_tabular/submissions/xgb_new_params.csv"))
