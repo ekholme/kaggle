@@ -1,0 +1,92 @@
+---
+title: "Kaggle Amex Challenge EDA"
+---
+
+# Overview
+
+In this challenge, we're tasked with predicting the probability that a given customer will default on a future payment. Since the dataset is large (~16gb, ~460k rows, ~190 columns), I'm only going to look at a subset of the data.
+
+```{r}
+library(tidyverse)
+
+trn <- read_csv(here::here("amex/data/train_data.csv"), n_max = 200000)
+trn_lbls <- read_csv(here::here("amex/data/train_labels.csv"))
+
+trn <- trn |>
+  left_join(trn_lbls)
+
+rm(trn_lbls)
+
+write_csv(trn, here::here("amex/data/train_small.csv"))
+
+theme_set(theme_minimal())
+```
+
+Taking a first peek at the data:
+
+```{r}
+glimpse(trn)
+```
+
+So I'm noticing lots of NA values. Let's take a closer look at this:
+
+```{r}
+trn |>
+    summarize(across(everything(), function(x) sum(is.na(x))/length(x))) |>
+    pivot_longer(
+        cols = everything(),
+        names_to = "key",
+        values_to = "val"
+    ) |>
+    ggplot(aes(x = val)) +
+    geom_histogram() +
+    theme_minimal()
+```
+
+Ok, so, most variables don't have any NA's, but some have quite a few NAs. I'm hesitant to filter out anything with 100% NA, though, bc we're just looking at a subset of the data.
+
+Another thing to note is that S_2 is a date, and the following variables are categorical:
+
+- ['B_30', 'B_38', 'D_114', 'D_116', 'D_117', 'D_120', 'D_126', 'D_63', 'D_64', 'D_66', 'D_68'] 
+
+# Outcome Variable Distribution
+
+```{r}
+sum(trn$target)/nrow(trn)
+```
+
+So, we're getting about 25% of the data as defaulting.
+
+# Number of Unique Customers
+
+The dataset description says "the dataset contains aggregated profile features for each customer at each statement date." So each customer will be represented multiple times (or could be; they won't necessarily be).
+
+Let's look at how many unique customers we have in this subset:
+
+```{r}
+length(unique(trn$customer_ID))
+```
+
+
+~16.5k unique customers out of 2k rows, which means each customer has:
+
+```{r}
+200000/length(unique(trn$customer_ID))
+```
+
+records, give or take.
+
+So this is going to be longitudinal data in which each customer has multiple data points. To model this, we'll want to do something multilevel, nesting obs within customers to account for dependencies. We'll also probably want to account for change over time, probably by looking at difference in numeric variables from time to time.
+
+Let's check out the distribution of records by customer
+
+```{r}
+trn |>
+    count(customer_ID) |>
+    ggplot(aes(x = n)) +
+    geom_histogram()
+```
+
+Ok so most have 13 records.
+
+RESUME HERE.
