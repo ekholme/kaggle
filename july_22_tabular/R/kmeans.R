@@ -15,7 +15,7 @@ skim(df)
 X <- df[, 2:ncol(df)]
 
 rec <- recipe(~., data = X) |>
-    step_normalize(all_predictors()) |>
+    step_YeoJohnson(all_predictors()) |>
     prep()
 
 Xs <- bake(rec, new_data = NULL)
@@ -45,4 +45,4 @@ sub <- tibble(
     Predicted = res[[6]]$cluster
 )
 
-write_csv(sub, here::here("july_22_tabular/submissions/normalize.csv"))
+write_csv(sub, here::here("july_22_tabular/submissions/yj_scale.csv"))
