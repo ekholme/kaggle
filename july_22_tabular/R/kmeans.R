@@ -1,5 +1,6 @@
 library(tidyverse)
 library(skimr)
+library(tidymodels)
 
 # Setup -------------------
 df <- read_csv(here::here("july_22_tabular/data/data.csv"))
@@ -7,25 +8,20 @@ df <- read_csv(here::here("july_22_tabular/data/data.csv"))
 ids <- df$id
 
 # looking at data
-#skim(df)
+skim(df)
 
 # Processing -------------------
 
-#get integer cols to log
-log_cols <- c(paste0("f_0", 7:9), paste0("f_", 10:13))
+X <- df[, 2:ncol(df)]
 
-# some basic transformations
-X <- df |>
-    mutate(
-        across(log_cols, function(x) log(x + .01)),
-        across(.cols = everything(), scale)
-    )
+rec <- recipe(~., data = X) |>
+    step_normalize(all_predictors()) |>
+    prep()
 
-Xs <- as.matrix(X[, 2:ncol(X)])
-
+Xs <- bake(rec, new_data = NULL)
 # Kmeans ------------------------
 
-n_start <- 20
+n_start <- 1
 ks <- 2:10
 
 res <- map(ks, ~ kmeans(Xs, centers = .x, nstart = n_start))
@@ -42,3 +38,11 @@ ggplot(err_tbl, aes(x = ks, y = err)) +
     theme_minimal()
 #not super informative, but let's try 7
 
+# Write Submission -----------------
+
+sub <- tibble(
+    Id = ids,
+    Predicted = res[[6]]$cluster
+)
+
+write_csv(sub, here::here("july_22_tabular/submissions/normalize.csv"))
