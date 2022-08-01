@@ -30,4 +30,4 @@ sub = DataFrame(
     Predicted=C.assignments
 )
 
-CSV.write("july_22_tabular/submissions/feat_subset_jl.csv", sub)
+CSV.write("july_22_tabular/submissions/feat_jl.csv", sub)
