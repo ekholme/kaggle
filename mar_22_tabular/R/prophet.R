@@ -10,8 +10,49 @@ make_roads <- function(x) {
         select(-c("x", "y", "direction"))
 }
 
+cf <- function(v) {
+    n <- length(v)
+    sigma2 <- var(v)
+    med <- median(v)
+
+    ss <- sum((v - med)^2)
+
+    ret <- 1 - ((n - 3) * sigma2 / ss)
+
+    ret
+}
+
+js_shrink <- function(x, grp, var) {
+    lookup <- x %>%
+        select({{ grp }}, {{ var }}) %>%
+        group_by({{ grp }}) %>%
+        nest() %>%
+        mutate(cf = map_dbl(.data$data, ~ cf(.x[[1]]))) %>%
+        select({{ grp }}, cf)
+    
+    x %>%
+        left_join(lookup) %>%
+        group_by({{ grp }}) %>%
+        mutate(med = median({{ var }}), {{ var }} := med + cf * ({{ var }} - med)) %>%
+        select(-c("cf", "med"))
+}
+
+## RESUME HERE -- although I think the shrinkage is too much
+
 trn <- trn %>%
     make_roads()
+
+# testing out JS stuff
+rd1 <- trn %>%
+    filter(road == unique(trn$road)[1])
+
+n <- length(rd1$congestion)
+sigma2 <- var(rd1$congestion)
+med <- median(rd1$congestion)
+
+ss <- sum((rd1$congestion - med)^2)
+
+cf <- 1 - ((n - 3) * sigma2 / ss)
 
 tst <- tst %>%
     make_roads()
