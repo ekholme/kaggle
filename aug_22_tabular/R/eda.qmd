@@ -1,0 +1,191 @@
+---
+title: "Kaggle August 22 Tabular EDA"
+description: |
+    EDA of the August 22 Tabular Playground Data from Kaggle
+author: "EE"
+---
+
+*add some intro text*
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(corrplot)
+
+theme_set(theme_minimal())
+
+trn <- read_csv(here::here("aug_22_tabular/data/train.csv"))
+
+
+```
+
+```{r}
+glimpse(trn)
+```
+
+So we have 3 character columns and the rest are numeric. The outcome, `failure`, is binary.
+
+# Missingness
+
+
+```{r}
+trn |>
+    summarize(across(everything(), function(x) sum(is.na(x))/length(x))) |>
+    pivot_longer(
+        cols = everything(),
+        names_to = "var",
+        values_to = "val",
+    ) |>
+    ggplot(aes(x = val, y = fct_reorder(var, val))) +
+    geom_col() +
+    scale_x_continuous(labels = scales::percent_format())
+```
+
+Ok so some missingness in here -- we'll want to explore that a bit more later.
+
+# Outcome
+
+```{r}
+sum(trn$failure)/nrow(trn)
+```
+
+So, most outcomes are not failures -- only about 20% are failures.
+
+# Categorical Features
+
+```{r}
+trn |>
+    select(where(is.character)) |>
+    summarize(across(everything(), n_distinct))
+```
+
+Ok this is really helpful -- not that many unique values for each categorical variable
+
+```{r}
+trn |>
+    select(where(is.character)) |>
+    pivot_longer(
+        cols = everything(),
+        names_to = "var",
+        values_to = "val"
+    ) |>
+    count(var, val) |>
+    ggplot(aes(x = n, y = val, fill = var)) +
+    geom_col() +
+    facet_wrap(vars(var), scales = "free_y") +
+    theme(
+        legend.position = "none"
+    )
+```
+
+Alright so attribute 0 is pretty imbalanced, but product code and attribute one are more balanced.
+
+```{r}
+trn |>
+    select(where(is.character), failure) |>
+    mutate(failure = as.character(failure)) |>
+    pivot_longer(
+        cols = -failure,
+        names_to = "var",
+        values_to = "val"
+    ) |>
+    count(var, val, failure) |>
+    ggplot(aes(x = n, y = val, fill = failure)) +
+    geom_col() +
+    facet_wrap(vars(var), scales = "free_y")
+```
+
+It's kinda hard to see what's going on here -- it might be better to compare the failure incidence in each to the baseline of ~21%
+
+```{r}
+trn |>
+    select(where(is.character), failure) |>
+    pivot_longer(
+        cols = -failure,
+        names_to = "var",
+        values_to = "val"
+    ) |>
+    group_by(var, val) |>
+    summarize(fr = sum(failure)/n()) |>
+    ungroup() |>
+    ggplot(aes(x = fr, y = val)) +
+    geom_col(position = "dodge", fill = "steelblue") +
+    geom_vline(xintercept = .21) +
+    facet_wrap(vars(var), scales = "free_y")
+```
+
+Ok so even though some categories are more/less common, the failure rate across them all is pretty even.
+
+# Numeric Features
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    skim()
+```
+
+ok so measurement 17 is on a much different scale from everything else. Loading is also on a strange scale
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    pivot_longer(
+        cols = everything(),
+        names_to = "var",
+        values_to = "val"
+    ) |>
+    ggplot(aes(x = val)) +
+    geom_histogram() +
+    facet_wrap(vars(var), scales = "free_x")
+```
+
+Takeaways here are that attributes 2 and 3 are actually count variables, or potentially categorical variables
+
+Loading and measurements 0 and 1 have a little bit of skew to them
+
+Let's do the same plot again but with distributions by the outcome variable
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    pivot_longer(
+        cols = -failure,
+        names_to = "var",
+        values_to = "val"
+    ) |>
+    mutate(failure = as.character(failure)) |>
+    ggplot(aes(x = val, fill = failure)) +
+    geom_histogram() +
+    facet_wrap(vars(var), scales = "free_x")
+```
+
+This is a little hard to read, but I don't see anything standing out that one variable is clearly a better indicator of failure than another
+
+```{r}
+trn |>
+    select(where(is.numeric), -id) |>
+    cor(use = "pairwise.complete.obs") |>
+    corrplot()
+```
+
+Ok so not a ton of correlations here. We see that measurement 17 has a negative correlation with some other variables, but it's possible that is because of the big scale difference?
+
+Most importantly, failure doesn't really seem to have much of a correlation with anything
+
+```{r}
+cr_mat <- trn |>
+    select(where(is.numeric), -id) |>
+    cor(use = "pairwise.complete.obs")
+
+cr_mat["failure",]
+```
+
+Yeah so very little action here...
+
+Thoughts for modeling this data:
+
+- Impute missing. Start with something simple like median/mode imputation, then potentially work to something else
+- Dummy out categorical variables
+- Normalize the continuous variables, or maybe use like the YJ transform? Some might need slight power transform.
+- Possibly try PCA, but I don't know that it'll have much of an effect since the correlations here are so small
+- Maybe do some feature selection via an early LASSO model?
