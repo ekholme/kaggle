@@ -189,3 +189,4 @@ Thoughts for modeling this data:
 - Normalize the continuous variables, or maybe use like the YJ transform? Some might need slight power transform.
 - Possibly try PCA, but I don't know that it'll have much of an effect since the correlations here are so small
 - Maybe do some feature selection via an early LASSO model?
+- Maybe MLM within product code?
