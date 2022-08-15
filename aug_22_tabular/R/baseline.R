@@ -10,3 +10,5 @@ sub <- tibble(
     id = tst_id,
     failure = pred
 )
+
+write_csv(sub, here::here("aug_22_tabular/submissions/baseline_r.csv"))
