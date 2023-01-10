@@ -21,10 +21,10 @@ fit!(transform_machine)
 X_trans = MLJ.transform(transform_machine, X_trn)
 
 #fit lasso
-m = fit(LassoModel, Matrix(X_trans), y_trn, Normal())
+m = fit(LassoModel, Matrix(X_trn), y_trn, Normal())
 
 #get lasso predictions
-lasso_preds = Lasso.predict(m, Matrix(MLJ.transform(transform_machine, X_tst)))
+lasso_preds = Lasso.predict(m, Matrix(X_tst))
 
 #fit rf model
 rf = @load RandomForestRegressor pkg=DecisionTree
@@ -37,7 +37,7 @@ fit!(rf_machine)
 
 rf_preds = MLJ.predict(
     rf_machine,
-    MLJ.transform(transform_machine, X_tst)
+    X_tst
 )
 
 #take avg of preds
