@@ -2,7 +2,7 @@
 
 julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "f48fdf3a805aa0cd2cee97640c47a6ef7cae702c"
+project_hash = "bb437ebb6b26257f367ee99cb0478103f965832b"
 
 [[deps.ARFFFiles]]
 deps = ["CategoricalArrays", "Dates", "Parsers", "Tables"]
@@ -112,15 +112,15 @@ version = "3.13.1"
 
 [[deps.CUDA_Driver_jll]]
 deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg"]
-git-tree-sha1 = "9d2679685939a9c9a6dfe96ac38bcb97d0a4cc4c"
+git-tree-sha1 = "ac201f51188823fef7f949add01a405d8ea44cc0"
 uuid = "4ee394cb-3365-5eb0-8335-949819d2adfc"
-version = "0.3.0+0"
+version = "0.3.0+1"
 
 [[deps.CUDA_Runtime_jll]]
 deps = ["Artifacts", "CUDA_Driver_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg", "TOML"]
-git-tree-sha1 = "e9c9cc9fceaebf83e889162334c0f84c33194478"
+git-tree-sha1 = "6ecd8fe28fd0df772388790df74c1162f9180f5b"
 uuid = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"
-version = "0.3.0+2"
+version = "0.3.0+4"
 
 [[deps.Cairo]]
 deps = ["Cairo_jll", "Colors", "Glib_jll", "Graphics", "Libdl", "Pango_jll"]
@@ -157,6 +157,11 @@ deps = ["CategoricalArrays", "Distributions", "Missings", "OrderedCollections", 
 git-tree-sha1 = "23fe4c6668776fedfd3747c545cd0d1a5190eb15"
 uuid = "af321ab8-2d2e-40a6-b165-3d674595d28e"
 version = "0.1.9"
+
+[[deps.Chain]]
+git-tree-sha1 = "8c4920235f6c561e401dfe569beb8b924adad003"
+uuid = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+version = "0.5.0"
 
 [[deps.ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra", "SparseArrays"]
