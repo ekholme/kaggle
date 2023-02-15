@@ -33,16 +33,16 @@ mapcols(x ->sum(x) / nrow(trn), trn_bin)
 
 #ok, so about 45-47% of all houses have any given one of these features.
 
-#faceted histograms
-#see https://docs.makie.org/stable/tutorials/layout-tutorial/ for a start
-f = Figure()
-ax = Axis(f[1,1])
+#non-binary features -------------
 
-demo_cols = [:squareMeters, :numberOfRooms, :basement]
+f2 = Figure()
 
-for i in demo_cols
-    hist!(ax, trn[:, i])
+ax2 = [Axis(f2[i, j]) for i in 1:4, j in 1:3][1:length(cont_feats)]
+
+for (i, d) in enumerate(cont_feats)
+    ax2[i].title = string(d)
+    hist!(ax2[i], trn[:, d])
 end
 
-f
-#this doesn't work yet
+f2
+#ok so this works finally
