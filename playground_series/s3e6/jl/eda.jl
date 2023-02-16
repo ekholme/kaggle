@@ -35,6 +35,8 @@ mapcols(x ->sum(x) / nrow(trn), trn_bin)
 
 #non-binary features -------------
 
+cont_feats = setdiff(Symbol.(names(trn)), binary_features)[2:end-1]
+
 f2 = Figure()
 
 ax2 = [Axis(f2[i, j]) for i in 1:4, j in 1:3][1:length(cont_feats)]
@@ -46,3 +48,8 @@ end
 
 f2
 #ok so this works finally
+#i don't know exactly what city code is, but it feels like a grouping variable
+
+#next step is to correlate features with price
+
+# correlations ----------------------
