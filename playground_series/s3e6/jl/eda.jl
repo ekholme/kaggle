@@ -53,3 +53,22 @@ f2
 #next step is to correlate features with price
 
 # correlations ----------------------
+cm = cor(Matrix(trn))
+
+#just cors with price
+price_cors = collect(zip(names(trn), cm[:, end]))
+show(price_cors)
+#ok so the only one that really seems to matter much is square footage. garage has a small negative value
+#it's possible there are some nonlinearities, though
+
+#let's treat city code as categorical
+length(unique(trn.:cityCode))
+#ok just kidding -- there are way too many unique values
+
+#what about city part range
+length(unique(trn.:cityPartRange))
+
+part_range_mns = @chain trn begin
+    transform(:cityPartRange => string )
+end
+#this doesn't work like i want it to
