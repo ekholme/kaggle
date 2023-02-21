@@ -69,6 +69,26 @@ length(unique(trn.:cityCode))
 length(unique(trn.:cityPartRange))
 
 part_range_mns = @chain trn begin
-    transform(:cityPartRange => string )
+    transform(:cityPartRange => ByRow(string) => :cityPartRange)
+    groupby(:cityPartRange)
+    combine(:price => mean)
 end
-#this doesn't work like i want it to
+
+barplot(
+    1:nrow(part_range_mns),
+    part_range_mns.:price_mean,
+    direction = :x,
+    bar_labels = part_range_mns.:cityPartRange
+)
+#ok so not really much here
+
+#also let's look into how many houses we have by cityPartRange
+
+@chain trn begin
+    transform(:cityPartRange => ByRow(string) => :cityPartRange)
+    groupby(:cityPartRange)
+    combine(proprow)
+    show(allrows = true)
+end
+#some differences here, combined with the slight price differences
+#might matter
