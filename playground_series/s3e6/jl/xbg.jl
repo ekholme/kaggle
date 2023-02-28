@@ -19,3 +19,12 @@ models(matching(X, y))
 b = xgboost((X, y), num_round = 100, max_depth = 5, η = .1)
 
 #make predictions
+preds = XGBoost.predict(b, tst[:, 2:end])
+
+#write out submission
+sub = DataFrame(
+    id = tst.:id,
+    price = preds
+)
+
+CSV.write("./playground_series/s3e6/submissions/xgb_base.csv", sub)

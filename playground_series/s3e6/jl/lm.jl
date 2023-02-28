@@ -19,4 +19,9 @@ X_test = Matrix(tst[:, 2:end])
 preds = X_test * mod
 
 #write out submission
+sub = DataFrame(
+    id = tst.:id,
+    price = preds
+)
 
+CSV.write("./playground_series/s3e6/submissions/baseline_lm.csv", sub)
