@@ -2,7 +2,7 @@
 
 julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "6477a04ff38a0d90fdef040f240a12361c287dcf"
+project_hash = "a08359a06cf28c0d3c09886df5d35f4acd1e20d2"
 
 [[deps.ARFFFiles]]
 deps = ["CategoricalArrays", "Dates", "Parsers", "Tables"]
@@ -1231,6 +1231,12 @@ deps = ["Distributions", "HDF5", "Interpolations", "KernelDensity", "LinearAlgeb
 git-tree-sha1 = "830c601de91378e773e7286c3a3e8964d6248657"
 uuid = "9bbee03b-0db5-5f46-924f-b5c9c21b8c60"
 version = "0.5.4"
+
+[[deps.NamedArrays]]
+deps = ["Combinatorics", "DataStructures", "DelimitedFiles", "InvertedIndices", "LinearAlgebra", "Random", "Requires", "SparseArrays", "Statistics"]
+git-tree-sha1 = "2fd5787125d1a93fbe30961bd841707b8a80d75b"
+uuid = "86f7a689-2022-50b4-a561-43c23ac3c673"
+version = "0.9.6"
 
 [[deps.Netpbm]]
 deps = ["FileIO", "ImageCore", "ImageMetadata"]
