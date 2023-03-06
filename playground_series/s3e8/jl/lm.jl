@@ -1,4 +1,5 @@
 using Parquet2
+using DataFrames
 using GLM
 using Statistics
 using CSV
@@ -32,6 +33,8 @@ CSV.write("./playground_series/s3e8/submissions/just_carat_lm.csv", sub)
 #i assume it really misclassifies some smaller ideal cuts, etc
 
 # Take 2 ------------
+
+target = trn.:price
 
 #dummy out all of the binary cols
 ts = eltype.(eachcol(trn))
@@ -77,11 +80,33 @@ end
 X_tst = hcat(ones(nrow(tst)), hcat(x_tst...))
 X_tst = Matrix(hcat(X_tst, tst.:carat, makeunique = true))
 
-preds = exp.(X_tst * mod)
+preds = X_tst * mod
 
 sub = DataFrame(
     id = tst.:id,
     price = preds
 )
 
-CSV.write("./playground_series/s3e8/submissions/lm_onehot.csv", sub)
+CSV.write("./playground_series/s3e8/submissions/lm_onehot_nolog.csv", sub)
+#ok so somehow this is even worse
+
+# Take 3, no logging ---------
+
+target = trn[:, :price]
+
+x = trn[:, :carat]
+
+X = hcat(ones(length(x)), x)
+
+mod = X \ target
+
+#get predictions
+preds = hcat(ones(length(tst[:, :carat])), tst[:, :carat]) * mod
+
+# write submission
+sub = DataFrame(
+    id = tst.:id,
+    price = preds
+)
+
+CSV.write("./playground_series/s3e8/submissions/just_carat_lm_nolog.csv", sub)
