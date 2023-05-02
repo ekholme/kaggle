@@ -7,3 +7,4 @@
 *.xls
 *.xlsx
 *.parquet
+.venv/
