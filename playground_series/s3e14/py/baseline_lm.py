@@ -1,5 +1,6 @@
 import polars as pl
 from sklearn.linear_model import LinearRegression
+import numpy as np
 
 trn = pl.read_csv("./playground_series/s3e14/data/train.csv")
 tst = pl.read_csv("./playground_series/s3e14/data/test.csv")
@@ -27,5 +28,11 @@ preds = lm.predict(X_test)
 
 #write to file
 sub = pl.DataFrame(
-    
+   {
+       "id": tst['id'],
+       "yield": preds.flatten(),
+   } 
 )
+
+
+sub.write_csv("./playground_series/s3e14/submissions/baseline_lm_py.csv")

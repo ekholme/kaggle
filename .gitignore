@@ -8,3 +8,4 @@
 *.xlsx
 *.parquet
 .venv/
+/.luarc.json

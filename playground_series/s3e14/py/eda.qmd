@@ -1,0 +1,20 @@
+---
+title: "S3E14 EDA"
+author: "EE"
+jupyter: python3
+---
+
+# EDA
+
+```{python}
+#setup
+import polars as pl
+import statistics
+
+trn = pl.read_csv("./playground_series/s3e14/data/train.csv")
+tst = pl.read_csv("./playground_series/s3e14/data/test.csv")
+```
+
+```{python}
+
+```
