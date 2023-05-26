@@ -1,13 +1,14 @@
 import polars as pl
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss
+from sklearn.metrics import get_scorer_names
 from sklearn.linear_model import LogisticRegression
 from sklearn import preprocessing
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold
 
 trn = pl.read_csv("./age_related_conditions/data/trn.csv")
 val = pl.read_csv("./age_related_conditions/data/validation.csv")
@@ -15,8 +16,8 @@ val = pl.read_csv("./age_related_conditions/data/validation.csv")
 imp = SimpleImputer(missing_values=np.nan, strategy='median')
 yj = preprocessing.PowerTransformer()
 oh = preprocessing.OneHotEncoder(drop='first')
-pca = PCA()
-lr = LogisticRegression(C=.9)
+pca = PCA(n_components=42)
+lr = LogisticRegression()
 
 
 #finagle X a little bit
@@ -57,15 +58,48 @@ preprocessor = ColumnTransformer(
 #so I need to do this conversion before running?
 Xpd = X.to_pandas()
 
-preprocessor.fit_transform(Xpd)
 
-ev_pct = preprocessor.named_transformers_['nums'].named_steps['pca'].explained_variance_ratio_.cumsum()
+#make a pipeline with the preprocessing and logreg steps
+pipe = Pipeline(
+    [
+        ('preprocess', preprocessor),
+        ('lr', lr)
+    ]
+)
 
+#set up parameters for gridsearch
+params = {
+    'lr__solver': ['liblinear'],
+    'lr__C': [.01, .1, .2, .5, .9, .99],
+    'lr__penalty': ['l1', 'l2'],
+    'lr__random_state': [408]
+}
 
-out_pcs = sum(ev_pct < .95)
-#ok, so we want to keep this many components, I guess
-#it's 42
+folds = RepeatedStratifiedKFold(n_splits = 5, n_repeats=5, random_state= 408)
 
+cv = GridSearchCV(
+    pipe,
+    params,
+    cv = folds,
+    scoring = 'neg_log_loss'
+)
 
-#see this article for more on preprocessing pipelines in sklearn
-#https://medium.com/analytics-vidhya/how-to-apply-preprocessing-steps-in-a-pipeline-only-to-specific-features-4e91fe45dfb8
+cv.fit(Xpd, y)
+
+cv.best_score_
+cv.best_params_
+
+Xt = val.select(pl.exclude(['Id', 'Class'])).to_pandas()
+yt = val['Class']
+
+cv.score(Xt, yt)
+
+preds = cv.predict_proba(Xt)
+
+sub = pl.DataFrame(
+    {
+        "Id": val['Id'],
+        "class_0": preds[:, 0],
+        "class_1": preds[:, 1]
+    }
+)
