@@ -1,0 +1,28 @@
+---
+title: "EDA"
+jupyter: python3
+---
+
+```{python}
+import polars as pl
+import statistics
+import numpy as np
+import os
+
+os.chdir("..")
+
+# print("current wd:", os.getcwd())
+trn = pl.read_csv("./data/train.csv")
+tst = pl.read_csv("./data/test.csv")
+
+```
+
+```{python}
+trn.shape 
+```
+
+```{python}
+trn.head() 
+```
+
+## resume here
