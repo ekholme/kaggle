@@ -1,0 +1,9 @@
+[deps]
+BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+GLM = "38e38edf-8417-5370-95a0-9cbb8c7f171a"
+MLJ = "add582a8-e3ab-11e8-2d5e-e98b27df1bc7"
+MLJXGBoostInterface = "54119dfa-1dab-4055-a167-80440f4f7a91"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"

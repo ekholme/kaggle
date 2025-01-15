@@ -33,4 +33,11 @@ transform!(
 X_tst = Matrix(select(tst, [:model_year, :milage, :accident_bool]))
 
 preds = X_tst * β
-#this feels like it's going to be pretty wrong, but yolo
+
+#write out submission
+sub = DataFrame(
+    id=tst.:id,
+    price=preds
+)
+
+CSV.write("playground_series/s4e9/submissions/baseline_lm.csv", sub)
