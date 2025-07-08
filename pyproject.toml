@@ -1,0 +1,9 @@
+[project]
+name = "kaggle"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "polars>=1.31.0",
+    "scikit-learn>=1.7.0",
+]
+
